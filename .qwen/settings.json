@@ -1,0 +1,91 @@
+{
+  "modelProviders": {
+    "openai": [
+      {
+        "id": "qwen3-standard",
+        "baseUrl": "http://127.0.0.1:8080/v1",
+        "envKey": "LOCAL_API_KEY",
+        "model": "unsloth/Qwen3-Coder-Next-GGUF:Q3_K_XL"
+      },
+      {
+        "id": "qwen3-apex",
+        "baseUrl": "http://127.0.0.1:8080/v1",
+        "envKey": "LOCAL_API_KEY",
+        "model": "mudler/Qwen3-Coder-Next-APEX-GGUF"
+      }
+    ]
+  },
+  "security": {
+    "auth": {
+      "selectedType": "openai"
+    }
+  },
+  "$version": 3,
+  "permissions": {
+    "allow": [
+      "Bash(grep *)",
+      "Bash(find *)",
+      "Bash(make *)",
+      "Bash(ctest *)",
+      "Bash(/caveman *)",
+      "Bash(skill: *)",
+      "Bash(skill *)",
+      "Bash(strings *)",
+      "Bash(cmake *)",
+      "Bash(git show *)",
+      "Bash(diff *)",
+      "Bash(cat *)",
+      "Bash(uv *)",
+      "Bash(mkdir *)",
+      "Bash(npm view *)",
+      "Bash(cargo build)",
+      "Bash(git checkout *)",
+      "Bash(echo *)",
+      "Bash(cargo run)",
+      "Bash(cargo check)",
+      "Bash(cargo test *)",
+      "Bash(ls *)",
+      "Bash(./target/release/git_diff_checker)",
+      "Bash(./test.sh)"
+    ]
+  },
+  "model": {
+    "name": "qwen3-apex"
+  },
+  "mcpServers": {
+    "foundryTools": {
+      "command": "/home/softdream/Programming/probe/my-mcp-server/target/release/my-mcp-server"
+    }
+  },
+  "mcp": {
+    "excluded": []
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^bash$", // Regex to match tool names
+        "sequential": false, // Whether to run hooks sequentially
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/path/to/script.sh",
+            "name": "security-check",
+            "description": "Run security checks before tool execution",
+            "timeout": 30000
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'Session started'",
+            "name": "session-init"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="Electron" agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.6.1 Chrome/142.0.7444.265 Electron/39.8.9 Safari/537.36" version="29.6.1">
+  <diagram name="Page-1" id="CHJ6Jh7zsm30WvdrbI_g">
+    <mxGraphModel dx="2381" dy="1084" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="N5P33qB7Mh85oo0NPTpL-1" parent="1" style="strokeWidth=2;html=1;shape=mxgraph.flowchart.start_2;whiteSpace=wrap;" value="CHECK FIRST COMMIT WITH A DIFF COMMAND TO SEE IF THE OG LINES HAVE NOT BEEN MODIFIED" vertex="1">
+          <mxGeometry height="100" width="240" x="80" y="270" as="geometry" />
+        </mxCell>
+        <mxCell id="N5P33qB7Mh85oo0NPTpL-8" parent="1" style="strokeWidth=2;html=1;shape=mxgraph.flowchart.decision;whiteSpace=wrap;" value="Were they modified?" vertex="1">
+          <mxGeometry height="130" width="160" x="120" y="480" as="geometry" />
+        </mxCell>
+        <mxCell id="N5P33qB7Mh85oo0NPTpL-9" edge="1" parent="1" source="N5P33qB7Mh85oo0NPTpL-1" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;entryPerimeter=0;" target="N5P33qB7Mh85oo0NPTpL-8" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="270" y="420" as="sourcePoint" />
+            <mxPoint x="320" y="370" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="N5P33qB7Mh85oo0NPTpL-10" edge="1" parent="1" style="endArrow=classic;html=1;rounded=0;entryX=0;entryY=0.25;entryDx=0;entryDy=0;" target="N5P33qB7Mh85oo0NPTpL-12" value="YEs">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="280" y="540" as="sourcePoint" />
+            <mxPoint x="380" y="540" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="N5P33qB7Mh85oo0NPTpL-11" connectable="0" parent="N5P33qB7Mh85oo0NPTpL-10" style="edgeLabel;resizable=0;html=1;;align=center;verticalAlign=middle;" value="Yes" vertex="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="N5P33qB7Mh85oo0NPTpL-12" parent="1" style="shape=parallelogram;html=1;strokeWidth=2;perimeter=parallelogramPerimeter;whiteSpace=wrap;rounded=1;arcSize=12;size=0.23;" value="Revert changes just on the affected lines not the whole file and communicate it to the LLM." vertex="1">
+          <mxGeometry height="260" width="370" x="330" y="460" as="geometry" />
+        </mxCell>
+        <mxCell id="N5P33qB7Mh85oo0NPTpL-16" edge="1" parent="1" source="N5P33qB7Mh85oo0NPTpL-8" style="endArrow=classic;html=1;rounded=0;exitX=0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;" value="">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="50" y="630" as="sourcePoint" />
+            <mxPoint x="80" y="650" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="N5P33qB7Mh85oo0NPTpL-17" connectable="0" parent="N5P33qB7Mh85oo0NPTpL-16" style="edgeLabel;resizable=0;html=1;;align=center;verticalAlign=middle;" value="No" vertex="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="N5P33qB7Mh85oo0NPTpL-19" parent="1" style="shape=parallelogram;html=1;strokeWidth=2;perimeter=parallelogramPerimeter;whiteSpace=wrap;rounded=1;arcSize=12;size=0.23;" value="Do nothing and let the model proceed its current task" vertex="1">
+          <mxGeometry height="130" width="230" x="-30" y="650" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

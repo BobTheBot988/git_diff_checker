@@ -1,0 +1,13 @@
+[package]
+name = "git_diff_checker"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+git2 = "0.19"
+
+[profile.release]
+lto = true
+
+[build]
+rustflags = ["-C", "linker=lld", "-C", "link-arg=-fuse-ld=lld"]
