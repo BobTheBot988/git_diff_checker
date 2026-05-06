@@ -4,3 +4,6 @@
 [submodule "test/test2"]
 	path = test/test2
 	url = ./test/test2
+[submodule "hook"]
+	path = hook
+	url = ./hook

@@ -1,0 +1,1 @@
+fn(Option<bool>, Option<String>, Option<bool>, Option<String>, Option<String>, Option<HashMap<String, Box<(dyn Any + 'static)>>>, HookDecision) -> PreToolUseHookOutput {PreToolUseHookOutput}

@@ -46,7 +46,11 @@
       "Bash(cargo test *)",
       "Bash(ls *)",
       "Bash(./target/release/git_diff_checker)",
-      "Bash(./test.sh)"
+      "Bash(./test.sh)",
+      "Bash(/home/robertodr/gits/git_diff_checker/hooks/target/release/post_hook)",
+      "Bash(/home/robertodr/gits/git_diff_checker/target/release/git_diff_checker)",
+      "Bash(file *)",
+      "WebFetch(qwenlm.github.io)"
     ]
   },
   "model": {
@@ -63,26 +67,30 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "^bash$", // Regex to match tool names
-        "sequential": false, // Whether to run hooks sequentially
+        "matcher": "",
+        "sequential": false,
         "hooks": [
           {
             "type": "command",
-            "command": "/path/to/script.sh",
-            "name": "security-check",
-            "description": "Run security checks before tool execution",
+            "command": "/home/robertodr/gits/git_diff_checker/hooks/target/release/pre_hook",
+            "name": "src-whitelist-hook",
+            "description": "Enforce src/ directory whitelist for file modifications",
             "timeout": 30000
           }
         ]
       }
     ],
-    "SessionStart": [
+    "PostToolUse": [
       {
+        "matcher": "",
+        "sequential": false,
         "hooks": [
           {
             "type": "command",
-            "command": "echo 'Session started'",
-            "name": "session-init"
+            "command": "/home/robertodr/gits/git_diff_checker/hooks/target/release/post_hook",
+            "name": "git-diff-checker-hook",
+            "description": "Check if git_diff_checker detected and reverted unauthorized changes",
+            "timeout": 60000
           }
         ]
       }
