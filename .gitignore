@@ -1,5 +1,3 @@
-/target
-/hook/Cargo.lock
-/hook/target/
-/hooks/*/Cargo.lock
-/hooks/*/target/
+target
+hooks/*/Cargo.lock
+hooks/*/target
