@@ -1,6 +1,6 @@
 use regex::Regex;
 use serde_inline_default::serde_inline_default;
-use std::{collections::HashMap, process};
+use std::{collections::HashMap, path::PathBuf, process};
 use strum_macros::Display;
 
 use serde::{Deserialize, Serialize};
@@ -8,22 +8,76 @@ use serde::{Deserialize, Serialize};
 use std::io::{self, Read};
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum HookInput {
     PreToolUse(PreToolUseInput),
     PostToolUse(PostToolUseInput),
 }
 
-#[derive(Debug, Display, Deserialize)]
+#[derive(Debug, Display, Serialize, Deserialize)]
 #[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum PermissionMode {
     Default,
     Plan,
     AutoEdit,
     Yolo,
 }
+// 1. Update CommandRequest to capture extra fields for conversion
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "snake_case")]
+pub struct CommandRequest {
+    pub hook_event_name: Option<String>,
+    pub cwd: Option<PathBuf>,
+    // Flatten captures all other JSON fields into this map
+    #[serde(flatten)]
+    pub extra_fields: HashMap<String, serde_json::Value>,
+}
 
+macro_rules! impl_check_valid_type {
+    ($target_struct:ident, $event_name:expr) => {
+        impl $target_struct {
+            fn check_correctness(req: &CommandRequest) -> bool {
+                req.hook_event_name
+                    .as_ref()
+                    .map(|n| n.eq_ignore_ascii_case($event_name))
+                    .unwrap_or(false)
+            }
+        }
+    };
+}
+
+impl_check_valid_type!(PreToolUseInput, "PreToolUse");
+impl_check_valid_type!(PostToolUseInput, "PostToolUse");
+
+macro_rules! impl_try_from_request {
+    ($target_struct:ident, $event_name:expr) => {
+        impl TryFrom<CommandRequest> for $target_struct {
+            type Error = String;
+
+            fn try_from(req: CommandRequest) -> Result<Self, Self::Error> {
+                // Check if the event name exists and matches (case-insensitive)
+
+                if !$target_struct::check_correctness(&req) {
+                    return Err(format!("Not a {} event", $event_name));
+                }
+
+                // Map the flattened fields into the actual struct
+                serde_json::from_value(serde_json::Value::Object(
+                    req.extra_fields.into_iter().collect(),
+                ))
+                .map_err(|e| e.to_string())
+            }
+        }
+    };
+}
+
+// Apply the macro for your types
+impl_try_from_request!(PreToolUseInput, "PreToolUse");
+impl_try_from_request!(PostToolUseInput, "PostToolUse");
 #[serde_inline_default]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct PreToolUseInput {
     #[serde_inline_default(PermissionMode::Default)]
     pub permission_mode: PermissionMode,
@@ -48,7 +102,9 @@ impl PreToolUseInput {
         }
     }
 }
+
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct PostToolUseInput {
     pub permission_mode: PermissionMode,
     pub tool_name: String,
@@ -76,6 +132,7 @@ impl PostToolUseInput {
 }
 
 #[derive(Debug, Display, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
 pub enum HookType {
     Command,
@@ -84,6 +141,7 @@ pub enum HookType {
 }
 
 #[derive(Debug, Display, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
 pub enum HookDecision {
     Ask,
@@ -94,6 +152,7 @@ pub enum HookDecision {
 }
 
 #[derive(Debug, Display, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
 pub enum HookEventName {
     PreToolUse,
@@ -111,8 +170,9 @@ pub enum HookEventName {
     PermissionRequest,
     StopFailure,
 }
-#[derive(Debug, Display)]
+#[derive(Debug, Display, Deserialize, Serialize)]
 #[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum PermissionDecision {
     Allow,
     Deny,
@@ -120,6 +180,7 @@ pub enum PermissionDecision {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub struct PreToolUseHookOutput {
     #[serde(rename = "continue")]
     pub cont: Option<bool>,
@@ -129,6 +190,34 @@ pub struct PreToolUseHookOutput {
     pub reason: Option<String>,
     pub hook_specific_output: Option<HashMap<String, serde_json::Value>>,
     pub decision: HookDecision,
+}
+
+impl PreToolUseHookOutput {
+    pub fn make_pre_tool_output(decision: HookDecision, cont: bool, reason: String) -> HookOutput {
+        let mut map = std::collections::HashMap::new();
+        map.insert(
+            "hookEventName".to_string(),
+            serde_json::Value::from("preToolUse"),
+        );
+        map.insert(
+            "permissionDecision".to_string(),
+            serde_json::Value::from(decision.to_string()),
+        );
+        map.insert(
+            "permissionDecisionReason".to_string(),
+            serde_json::Value::from(reason),
+        );
+
+        HookOutput::PreTool(PreToolUseHookOutput {
+            cont: Some(cont),
+            stop_reason: None,
+            suppress_output: None,
+            system_message: None,
+            reason: None,
+            hook_specific_output: Some(map),
+            decision,
+        })
+    }
 }
 
 macro_rules! impl_hook_output_methods {
@@ -195,6 +284,7 @@ impl_hook_output_methods!(PreToolUseHookOutput);
 impl_hook_output_methods!(PostToolUseHookOutput);
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub struct PostToolUseHookOutput {
     pub cont: Option<bool>,
     pub stop_reason: Option<String>,
@@ -207,42 +297,82 @@ pub struct PostToolUseHookOutput {
 
 pub struct Hook(HookInput, HookOutput, HookEventName, HookType);
 
-fn recv_hook_input(he: &HookEventName, h: &HookType) -> HookInput {
-    let input_str = match h {
+fn recv_command_request(he: &HookEventName, h: &HookType) -> CommandRequest {
+    match h {
         HookType::Command => {
-            let mut input_str = String::new();
-            if let Err(e) = io::stdin().read_to_string(&mut input_str) {
-                eprintln!("Error reading stdin: {}", e);
-                process::exit(2);
+            let stdin = io::stdin();
+            let reader = stdin.lock();
+
+            // This iterator handles the {}{} concatenated JSON problem
+            let stream =
+                serde_json::Deserializer::from_reader(reader).into_iter::<CommandRequest>();
+
+            for item in stream {
+                let req = match item {
+                    Ok(r) => r,
+                    Err(_) => continue, // Skip malformed chunks or trailing data
+                };
+
+                match he {
+                    HookEventName::PreToolUse => {
+                        if let input = PreToolUseInput::try_from(req) {
+                            return input;
+                        }
+                    }
+                    HookEventName::PostToolUse => {
+                        if let Ok(input) = PostToolUseInput::try_from(req) {
+                            return HookInput::PostToolUse(input);
+                        }
+                    }
+                    _ => todo!(),
+                }
             }
-            input_str
+
+            eprintln!(
+                "Error: Target event {:?} not found in the input stream.",
+                he
+            );
+            process::exit(2);
         }
-        HookType::Http => todo!(),
         _ => todo!(),
-    };
+    }
+}
+fn recv_hook_input(he: &HookEventName, h: &HookType) -> HookInput {
+    match h {
+        HookType::Command => {
+            let stdin = io::stdin();
+            let reader = stdin.lock();
 
-    match he {
-        //TODO: implement macro to make this more scalable
-        HookEventName::PreToolUse => {
-            let input: PreToolUseInput = match serde_json::from_str(&input_str) {
-                Ok(i) => i,
-                Err(e) => {
-                    eprintln!("Error parsing JSON: {}", e);
-                    process::exit(2);
-                }
-            };
-            HookInput::PreToolUse(input)
-        }
+            // This iterator handles the {}{} concatenated JSON problem
+            let stream =
+                serde_json::Deserializer::from_reader(reader).into_iter::<CommandRequest>();
 
-        HookEventName::PostToolUse => {
-            let input: PostToolUseInput = match serde_json::from_str(&input_str) {
-                Ok(i) => i,
-                Err(e) => {
-                    eprintln!("Error parsing JSON: {}", e);
-                    process::exit(2);
+            for item in stream {
+                let req = match item {
+                    Ok(r) => r,
+                    Err(_) => continue, // Skip malformed chunks or trailing data
+                };
+
+                match he {
+                    HookEventName::PreToolUse => {
+                        if let Ok(input) = PreToolUseInput::try_from(req) {
+                            return HookInput::PreToolUse(input);
+                        }
+                    }
+                    HookEventName::PostToolUse => {
+                        if let Ok(input) = PostToolUseInput::try_from(req) {
+                            return HookInput::PostToolUse(input);
+                        }
+                    }
+                    _ => todo!(),
                 }
-            };
-            HookInput::PostToolUse(input)
+            }
+
+            eprintln!(
+                "Error: Target event {:?} not found in the input stream.",
+                he
+            );
+            process::exit(2);
         }
         _ => todo!(),
     }
@@ -272,6 +402,7 @@ impl Hook {
     }
 }
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum HookOutput {
     PreTool(PreToolUseHookOutput),
     PostTool(PostToolUseHookOutput),

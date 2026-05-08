@@ -1,0 +1,14 @@
+/home/robertodr/gits/git_diff_checker/hooks/target/release/deps/serde-f54a377f7ba6bf52.d: /home/robertodr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /home/robertodr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /home/robertodr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /home/robertodr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /home/robertodr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /home/robertodr/gits/git_diff_checker/hooks/target/release/build/serde-34f48f7d935fc3cc/out/private.rs
+
+/home/robertodr/gits/git_diff_checker/hooks/target/release/deps/libserde-f54a377f7ba6bf52.rlib: /home/robertodr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /home/robertodr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /home/robertodr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /home/robertodr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /home/robertodr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /home/robertodr/gits/git_diff_checker/hooks/target/release/build/serde-34f48f7d935fc3cc/out/private.rs
+
+/home/robertodr/gits/git_diff_checker/hooks/target/release/deps/libserde-f54a377f7ba6bf52.rmeta: /home/robertodr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /home/robertodr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /home/robertodr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /home/robertodr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /home/robertodr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /home/robertodr/gits/git_diff_checker/hooks/target/release/build/serde-34f48f7d935fc3cc/out/private.rs
+
+/home/robertodr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs:
+/home/robertodr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs:
+/home/robertodr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs:
+/home/robertodr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs:
+/home/robertodr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs:
+/home/robertodr/gits/git_diff_checker/hooks/target/release/build/serde-34f48f7d935fc3cc/out/private.rs:
+
+# env-dep:OUT_DIR=/home/robertodr/gits/git_diff_checker/hooks/target/release/build/serde-34f48f7d935fc3cc/out

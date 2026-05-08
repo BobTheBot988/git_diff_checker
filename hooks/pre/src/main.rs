@@ -1,7 +1,5 @@
 #!/usr/bin/env -S cargo -E run
-use common::{
-    HookDecision, HookEventName, HookInput, HookOutput, PreToolUseHookOutput, PreToolUseInput,
-};
+use common::{CommandRequest, HookInput, HookOutput, PreToolUseHookOutput, PreToolUseInput};
 use std::collections::HashMap;
 /// Qwen Code PreToolUse Hook: Enforce src/ directory whitelist for file modifications.
 ///
@@ -10,6 +8,8 @@ use std::collections::HashMap;
 /// - Allows write/edit operations ONLY on files inside src/
 /// - Denies write/edit operations on files outside src/
 use std::env;
+use std::fs::File;
+use std::io::prelude::*;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process;
@@ -25,19 +25,32 @@ fn get_project_root() -> PathBuf {
 }
 
 fn is_in_src_dir(file_path: &str, project_root: &Path) -> bool {
-    let abs_path = project_root
-        .join(file_path)
-        .canonicalize()
-        .unwrap_or_else(|_| {
-            // If canonicalize fails (e.g., file doesn't exist yet), use normalize
-            project_root.join(file_path)
-        });
-    let src_dir = project_root.join("src");
+    let p = Path::new(file_path);
+    let abs_path = if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        project_root.join(file_path)
+    };
 
-    abs_path
-        .strip_prefix(&src_dir)
-        .map(|p| !p.as_os_str().is_empty())
-        .unwrap_or(false)
+    let canonical_target = abs_path.canonicalize().unwrap_or_else(|_| {
+        abs_path
+            .parent()
+            .and_then(|parent| parent.canonicalize().ok())
+            .map(|parent| parent.join(abs_path.file_name().unwrap_or_default()))
+            .unwrap_or(abs_path)
+    });
+
+    let src_dir = project_root.join("src");
+    let canonical_src = src_dir.canonicalize().unwrap_or(src_dir);
+
+    // THIS IS THE CRITICAL DEBUG PRINT
+    eprintln!("TARGET: {:?}", canonical_target);
+    eprintln!("WHITELIST: {:?}", canonical_src);
+
+    let result = canonical_target.starts_with(&canonical_src);
+    eprintln!("RESULT: {}", result);
+
+    result
 }
 
 fn handle_pre_tool_use(input: &HookInput) -> HookOutput {
@@ -54,7 +67,7 @@ fn handle_pre_tool_use(input: &HookInput) -> HookOutput {
     // 2. Read operations
     let read_tools = ["read_file", "glob", "grep_search", "list_directory"];
     if read_tools.contains(&tool_name) {
-        return make_pre_tool_output(
+        return PreToolUseHookOutput::make_pre_tool_output(
             common::HookDecision::Allow,
             true,
             format!("Read operation '{}' is allowed on any file", tool_name),
@@ -67,12 +80,12 @@ fn handle_pre_tool_use(input: &HookInput) -> HookOutput {
         // Use .as_str() directly on the Value
         let file_path = input_data
             .tool_input
-            .get("file")
+            .get("file_path")
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
         if file_path.is_empty() {
-            return make_pre_tool_output(
+            return PreToolUseHookOutput::make_pre_tool_output(
                 common::HookDecision::Deny,
                 true,
                 format!("No file path provided for {}", tool_name),
@@ -81,13 +94,13 @@ fn handle_pre_tool_use(input: &HookInput) -> HookOutput {
 
         // Logic check: only allow if in src/
         if is_in_src_dir(file_path, &project_root) {
-            return make_pre_tool_output(
+            return PreToolUseHookOutput::make_pre_tool_output(
                 common::HookDecision::Allow,
                 true,
                 format!("File '{}' is inside src/ whitelist", file_path),
             );
         } else {
-            return make_pre_tool_output(
+            return PreToolUseHookOutput::make_pre_tool_output(
                 common::HookDecision::Deny,
                 false, // Stop execution because it's outside src/
                 format!(
@@ -99,7 +112,7 @@ fn handle_pre_tool_use(input: &HookInput) -> HookOutput {
     }
 
     // 4. Default fallback
-    make_pre_tool_output(
+    PreToolUseHookOutput::make_pre_tool_output(
         common::HookDecision::Allow,
         true,
         format!("Tool '{}' allowed (not a restricted operation)", tool_name),
@@ -107,78 +120,55 @@ fn handle_pre_tool_use(input: &HookInput) -> HookOutput {
 }
 
 /// Fixed helper using serde_json::Value
-fn make_pre_tool_output(decision: common::HookDecision, cont: bool, reason: String) -> HookOutput {
-    let mut map = std::collections::HashMap::new();
-    map.insert(
-        "hook_event_name".to_string(),
-        serde_json::Value::from("pre_tool_use"),
-    );
-    map.insert(
-        "permission_decision".to_string(),
-        serde_json::Value::from(decision.to_string()),
-    );
-    map.insert(
-        "permission_decision_reason".to_string(),
-        serde_json::Value::from(reason),
-    );
-
-    HookOutput::PreTool(PreToolUseHookOutput {
-        cont: Some(cont),
-        stop_reason: None,
-        suppress_output: None,
-        system_message: None,
-        reason: None,
-        hook_specific_output: Some(map),
-        decision,
-    })
-}
 
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
 
-    // Check for --help flag
-    if args.len() > 1 && (args[1] == "--help" || args[1] == "-h") {
-        println!(
-            "Qwen Code PreToolUse Hook: Enforce src/ directory whitelist for file modifications
-            
-Usage: {} [options]
+    // ... (Keep your --help logic here) ...
 
-This hook intercepts Qwen Code tool calls and enforces:
-- Read operations (read_file, glob, grep_search) allowed on any file
-- Write/Edit operations (write_file, edit) only allowed inside src/
+    // 1. Setup debug logging
+    let mut debug_file = File::create("/tmp/foo.txt").unwrap();
 
-Options:
-  --help, -h    Show this help message",
-            args[0]
-        );
-        return Ok(());
+    // 2. Use Deserializer to handle multiple JSON objects (Concatenated JSON)
+    let stdin = io::stdin();
+    let reader = stdin.lock();
+    let stream = serde_json::Deserializer::from_reader(reader).into_iter::<CommandRequest>();
+
+    let mut found_event = false;
+
+    for item in stream {
+        match item {
+            Ok(request) => {
+                // 3. Try to convert the generic Request into our specific PreToolUseInput
+                if let Ok(pre_tool_input) = PreToolUseInput::try_from(request) {
+                    found_event = true;
+
+                    // Log the validated input to our debug file
+                    let json_bytes =
+                        serde_json::to_vec(&pre_tool_input).expect("Failed to serialize");
+                    debug_file.write_all(&json_bytes)?;
+
+                    // 4. Process the hook logic
+                    let output = handle_pre_tool_use(&HookInput::PreToolUse(pre_tool_input));
+
+                    // 5. Output result and exit
+                    let output_json = serde_json::to_string_pretty(&output).unwrap();
+                    println!("{}", output_json);
+                    process::exit(0);
+                }
+            }
+            Err(e) => {
+                // If it's a parse error on a chunk that isn't ours, we can often ignore it,
+                // but for debugging hooks, it's better to see it in stderr.
+                eprintln!("Wait: JSON chunk error: {}", e);
+            }
+        }
     }
 
-    // Read input from stdin
-    let mut input_str = String::new();
-    if let Err(e) = io::stdin().read_to_string(&mut input_str) {
-        eprintln!("Error reading stdin: {}", e);
+    if !found_event {
+        eprintln!("Error: No valid PreToolUse event found in input stream.");
         process::exit(2);
     }
 
-    // Parse JSON input
-    let input: PreToolUseInput = match serde_json::from_str(&input_str) {
-        Ok(i) => i,
-        Err(e) => {
-            eprintln!("Error parsing JSON: {}", e);
-            process::exit(2);
-        }
-    };
-
-    // Handle only PreToolUse events
-    // if input= "PreToolUse" {
-    //     process::exit(0);
-    // }
-
-    // Process and output result
-    let output = handle_pre_tool_use(&HookInput::PreToolUse(input));
-    let output_json = serde_json::to_string_pretty(&output).unwrap();
-    println!("{}", output_json);
-
-    process::exit(0);
+    Ok(())
 }

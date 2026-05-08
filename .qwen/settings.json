@@ -12,6 +12,18 @@
         "baseUrl": "http://127.0.0.1:8080/v1",
         "envKey": "LOCAL_API_KEY",
         "model": "mudler/Qwen3-Coder-Next-APEX-GGUF"
+      },
+      {
+        "id": "gemma3-e4b-8b",
+        "baseUrl": "http://127.0.0.1:8080/v1",
+        "envKey": "LOCAL_API_KEY",
+        "model": "lmstudio-community/gemma-4-E4B-it-GGUF"
+      },
+      {
+        "id": "gemma3-e2b-5b",
+        "baseUrl": "http://127.0.0.1:8080/v1",
+        "envKey": "LOCAL_API_KEY",
+        "model": "lmstudio-community/gemma-4-E2B-it-GGUF"
       }
     ]
   },
@@ -54,7 +66,7 @@
     ]
   },
   "model": {
-    "name": "qwen3-apex"
+    "name": "gemma3-e2b-5b"
   },
   "mcpServers": {
     "foundryTools": {
