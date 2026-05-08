@@ -295,7 +295,7 @@ pub struct PostToolUseHookOutput {
     pub decision: HookDecision,
 }
 
-pub struct Hook(HookInput, HookOutput, HookEventName, HookType);
+pub struct Hook(HookInput, Option<HookOutput>, HookEventName, HookType);
 
 fn recv_command_request(he: &HookEventName, h: &HookType) -> CommandRequest {
     match h {
@@ -382,15 +382,10 @@ trait HookFunction {
 }
 
 impl Hook {
-    pub fn new(
-        hook_event_name: HookEventName,
-        hook_type: HookType,
-        f: fn(&HookInput) -> HookOutput,
-    ) -> Self {
+    pub fn new(hook_event_name: HookEventName, hook_type: HookType) -> Self {
         let input_data: HookInput = recv_hook_input(&hook_event_name, &hook_type);
-        let output_data: HookOutput = f(&input_data);
 
-        Self(input_data, output_data, hook_event_name, hook_type)
+        Self(input_data, None, hook_event_name, hook_type)
     }
 
     pub fn send_hook_output(&self) {
