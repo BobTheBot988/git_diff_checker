@@ -1,14 +1,17 @@
 use regex::Regex;
 use serde_inline_default::serde_inline_default;
 use std::{collections::HashMap, path::PathBuf, process};
+use strum::{AsRefStr, EnumDiscriminants};
 use strum_macros::Display;
 
 use serde::{Deserialize, Serialize};
 
 use std::io::{self, Read};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, EnumDiscriminants)]
+#[strum_discriminants(derive(AsRefStr))]
 #[serde(rename_all = "snake_case")]
+#[strum_discriminants(name(HookKind))] // This creates a "HookKind" enum automatically
 pub enum HookInput {
     PreToolUse(PreToolUseInput),
     PostToolUse(PostToolUseInput),
@@ -87,22 +90,6 @@ pub struct PreToolUseInput {
     pub tool_use_id: String, // Unique identifier for this tool use instance
 }
 
-impl PreToolUseInput {
-    fn new(
-        permission_mode: PermissionMode,
-        tool_name: String,
-        tool_input: HashMap<String, serde_json::Value>,
-        tool_use_id: String,
-    ) -> Self {
-        Self {
-            permission_mode,
-            tool_name,
-            tool_input,
-            tool_use_id,
-        }
-    }
-}
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct PostToolUseInput {
@@ -111,24 +98,6 @@ pub struct PostToolUseInput {
     pub tool_input: HashMap<String, serde_json::Value>,
     pub tool_response: HashMap<String, serde_json::Value>,
     pub tool_use_id: String, // Unique identifier for this tool use instance
-}
-
-impl PostToolUseInput {
-    fn new(
-        permission_mode: PermissionMode,
-        tool_name: String,
-        tool_input: HashMap<String, serde_json::Value>,
-        tool_response: HashMap<String, serde_json::Value>,
-        tool_use_id: String,
-    ) -> Self {
-        Self {
-            permission_mode,
-            tool_name,
-            tool_input,
-            tool_response,
-            tool_use_id,
-        }
-    }
 }
 
 #[derive(Debug, Display, Serialize, Deserialize)]
@@ -294,10 +263,15 @@ pub struct PostToolUseHookOutput {
     pub hook_specific_output: Option<HashMap<String, serde_json::Value>>,
     pub decision: HookDecision,
 }
+pub struct Hook(
+    pub HookInput,
+    pub Option<HookOutput>,
+    pub HookEventName,
+    pub HookType,
+    pub Option<CommandRequest>,
+);
 
-pub struct Hook(HookInput, Option<HookOutput>, HookEventName, HookType);
-
-fn recv_command_request(he: &HookEventName, h: &HookType) -> CommandRequest {
+fn recv_hook_input(he: &HookEventName, h: &HookType) -> (HookInput, CommandRequest) {
     match h {
         HookType::Command => {
             let stdin = io::stdin();
@@ -315,13 +289,13 @@ fn recv_command_request(he: &HookEventName, h: &HookType) -> CommandRequest {
 
                 match he {
                     HookEventName::PreToolUse => {
-                        if PreToolUseInput::check_correctness(&req) {
-                            return req;
+                        if let Ok(input) = PreToolUseInput::try_from(req.clone()) {
+                            return (HookInput::PreToolUse(input), req);
                         }
                     }
                     HookEventName::PostToolUse => {
-                        if PostToolUseInput::check_correctness(&req) {
-                            return req;
+                        if let Ok(input) = PostToolUseInput::try_from(req.clone()) {
+                            return (HookInput::PostToolUse(input), req);
                         }
                     }
                     _ => todo!(),
@@ -337,55 +311,15 @@ fn recv_command_request(he: &HookEventName, h: &HookType) -> CommandRequest {
         _ => todo!(),
     }
 }
-fn recv_hook_input(he: &HookEventName, h: &HookType) -> HookInput {
-    match h {
-        HookType::Command => {
-            let stdin = io::stdin();
-            let reader = stdin.lock();
-
-            // This iterator handles the {}{} concatenated JSON problem
-            let stream =
-                serde_json::Deserializer::from_reader(reader).into_iter::<CommandRequest>();
-
-            for item in stream {
-                let req = match item {
-                    Ok(r) => r,
-                    Err(_) => continue, // Skip malformed chunks or trailing data
-                };
-
-                match he {
-                    HookEventName::PreToolUse => {
-                        if let Ok(input) = PreToolUseInput::try_from(req) {
-                            return HookInput::PreToolUse(input);
-                        }
-                    }
-                    HookEventName::PostToolUse => {
-                        if let Ok(input) = PostToolUseInput::try_from(req) {
-                            return HookInput::PostToolUse(input);
-                        }
-                    }
-                    _ => todo!(),
-                }
-            }
-
-            eprintln!(
-                "Error: Target event {:?} not found in the input stream.",
-                he
-            );
-            process::exit(2);
-        }
-        _ => todo!(),
-    }
-}
-trait HookFunction {
-    fn execute(&self, h: HookInput) -> Result<HookOutput, ()>;
+pub trait HookFunction {
+    fn execute(&self) -> Result<HookOutput, ()>;
 }
 
 impl Hook {
     pub fn new(hook_event_name: HookEventName, hook_type: HookType) -> Self {
-        let input_data: HookInput = recv_hook_input(&hook_event_name, &hook_type);
+        let (input_data, c) = recv_hook_input(&hook_event_name, &hook_type);
 
-        Self(input_data, None, hook_event_name, hook_type)
+        Self(input_data, None, hook_event_name, hook_type, Some(c))
     }
 
     pub fn send_hook_output(&self) {
