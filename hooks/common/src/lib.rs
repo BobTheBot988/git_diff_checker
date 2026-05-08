@@ -315,13 +315,13 @@ fn recv_command_request(he: &HookEventName, h: &HookType) -> CommandRequest {
 
                 match he {
                     HookEventName::PreToolUse => {
-                        if let input = PreToolUseInput::try_from(req) {
-                            return input;
+                        if PreToolUseInput::check_correctness(&req) {
+                            return req;
                         }
                     }
                     HookEventName::PostToolUse => {
-                        if let Ok(input) = PostToolUseInput::try_from(req) {
-                            return HookInput::PostToolUse(input);
+                        if PostToolUseInput::check_correctness(&req) {
+                            return req;
                         }
                     }
                     _ => todo!(),
