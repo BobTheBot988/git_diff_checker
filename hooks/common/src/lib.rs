@@ -377,6 +377,9 @@ fn recv_hook_input(he: &HookEventName, h: &HookType) -> HookInput {
         _ => todo!(),
     }
 }
+trait HookFunction {
+    fn execute(&self, h: HookInput) -> Result<HookOutput, ()>;
+}
 
 impl Hook {
     pub fn new(

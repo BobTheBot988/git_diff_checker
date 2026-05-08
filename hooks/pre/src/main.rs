@@ -1,5 +1,5 @@
 #!/usr/bin/env -S cargo -E run
-use common::{CommandRequest, HookInput, HookOutput, PreToolUseHookOutput, PreToolUseInput};
+use common::{CommandRequest, Hook, HookInput, HookOutput, PreToolUseHookOutput, PreToolUseInput};
 use std::collections::HashMap;
 /// Qwen Code PreToolUse Hook: Enforce src/ directory whitelist for file modifications.
 ///
@@ -8,7 +8,6 @@ use std::collections::HashMap;
 /// - Allows write/edit operations ONLY on files inside src/
 /// - Denies write/edit operations on files outside src/
 use std::env;
-use std::fs::File;
 use std::io::prelude::*;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -122,53 +121,10 @@ fn handle_pre_tool_use(input: &HookInput) -> HookOutput {
 /// Fixed helper using serde_json::Value
 
 fn main() -> io::Result<()> {
-    let args: Vec<String> = env::args().collect();
-
-    // ... (Keep your --help logic here) ...
-
-    // 1. Setup debug logging
-    let mut debug_file = File::create("/tmp/foo.txt").unwrap();
-
-    // 2. Use Deserializer to handle multiple JSON objects (Concatenated JSON)
-    let stdin = io::stdin();
-    let reader = stdin.lock();
-    let stream = serde_json::Deserializer::from_reader(reader).into_iter::<CommandRequest>();
-
-    let mut found_event = false;
-
-    for item in stream {
-        match item {
-            Ok(request) => {
-                // 3. Try to convert the generic Request into our specific PreToolUseInput
-                if let Ok(pre_tool_input) = PreToolUseInput::try_from(request) {
-                    found_event = true;
-
-                    // Log the validated input to our debug file
-                    let json_bytes =
-                        serde_json::to_vec(&pre_tool_input).expect("Failed to serialize");
-                    debug_file.write_all(&json_bytes)?;
-
-                    // 4. Process the hook logic
-                    let output = handle_pre_tool_use(&HookInput::PreToolUse(pre_tool_input));
-
-                    // 5. Output result and exit
-                    let output_json = serde_json::to_string_pretty(&output).unwrap();
-                    println!("{}", output_json);
-                    process::exit(0);
-                }
-            }
-            Err(e) => {
-                // If it's a parse error on a chunk that isn't ours, we can often ignore it,
-                // but for debugging hooks, it's better to see it in stderr.
-                eprintln!("Wait: JSON chunk error: {}", e);
-            }
-        }
-    }
-
-    if !found_event {
-        eprintln!("Error: No valid PreToolUse event found in input stream.");
-        process::exit(2);
-    }
-
+    Hook::new(
+        common::HookEventName::PreToolUse,
+        common::HookType::Command,
+        handle_pre_tool_use,
+    );
     Ok(())
 }
