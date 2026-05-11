@@ -45,7 +45,7 @@ impl HookHandler for MyPlugin {
         let res = hook.0.as_pre_tool_use();
         let hi = match res {
             Some(a) => a,
-            None => panic!(""),
+            None => std::process::exit(2),
         };
 
         let tool_name: &str = hi.tool_name.as_str();

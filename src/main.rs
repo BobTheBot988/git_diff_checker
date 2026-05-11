@@ -63,7 +63,7 @@ fn main() {
                             }
                             Err(e) => {
                                 eprintln!("Failed to revert: {}", e);
-                                std::process::exit(1);
+                                std::process::exit(2);
                             }
                         }
                     } else {
@@ -73,13 +73,13 @@ fn main() {
                 }
                 Err(e) => {
                     eprintln!("Failed to get diff hunks: {}", e);
-                    std::process::exit(1);
+                    std::process::exit(2);
                 }
             }
         }
         Err(e) => {
             eprintln!("Error checking file: {}", e);
-            std::process::exit(1);
+            std::process::exit(2);
         }
     }
 }
