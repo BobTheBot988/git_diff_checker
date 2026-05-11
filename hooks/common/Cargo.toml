@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+enum-as-inner = "0.7.0"
 regex = "1.12.3"
 serde = "1.0.228"
 serde-inline-default = "1.0.1"
