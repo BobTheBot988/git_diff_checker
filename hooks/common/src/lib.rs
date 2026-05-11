@@ -1,3 +1,4 @@
+use enum_as_inner::EnumAsInner;
 use regex::Regex;
 use serde_inline_default::serde_inline_default;
 use std::{collections::HashMap, path::PathBuf, process};
@@ -6,18 +7,59 @@ use strum_macros::Display;
 
 use serde::{Deserialize, Serialize};
 
-use std::io::{self, Read};
+use std::io;
+use std::ops::{Deref, DerefMut};
+// I'm constraining the HookFunction Trait only or the HookWrapper
+#[derive(Debug)]
+pub struct HookWrapper(pub Hook);
 
-#[derive(Debug, Deserialize, EnumDiscriminants)]
+impl Deref for HookWrapper {
+    type Target = Hook;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl DerefMut for HookWrapper {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+mod private {
+    pub trait Sealed {}
+}
+
+impl private::Sealed for HookWrapper {}
+
+pub trait HookFunction: private::Sealed {
+    fn execute(&self) -> Result<HookOutput, ()>;
+}
+
+impl<T: private::Sealed + ?Sized> HookFunction for T {
+    fn execute(&self) -> Result<HookOutput, ()> {
+        todo!()
+    }
+}
+
+// HookWrapper Is needed to circumvent the orphan rule WHY RUST WHY!?!?!?
+// Maybe it's just a skill issue
+#[derive(Debug, Deserialize, EnumDiscriminants, EnumAsInner)]
 #[strum_discriminants(derive(AsRefStr))]
 #[serde(rename_all = "snake_case")]
-#[strum_discriminants(name(HookKind))] // This creates a "HookKind" enum automatically
 pub enum HookInput {
     PreToolUse(PreToolUseInput),
     PostToolUse(PostToolUseInput),
 }
 
-#[derive(Debug, Display, Serialize, Deserialize)]
+impl Clone for HookInput {
+    fn clone(&self) -> Self {
+        match self {
+            Self::PreToolUse(arg0) => Self::PreToolUse(arg0.clone()),
+            Self::PostToolUse(arg0) => Self::PostToolUse(arg0.clone()),
+        }
+    }
+}
+
+#[derive(Debug, Display, Serialize, Deserialize, Clone, Copy)]
 #[strum(serialize_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 pub enum PermissionMode {
@@ -79,7 +121,7 @@ macro_rules! impl_try_from_request {
 impl_try_from_request!(PreToolUseInput, "PreToolUse");
 impl_try_from_request!(PostToolUseInput, "PostToolUse");
 #[serde_inline_default]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct PreToolUseInput {
     #[serde_inline_default(PermissionMode::Default)]
@@ -90,7 +132,7 @@ pub struct PreToolUseInput {
     pub tool_use_id: String, // Unique identifier for this tool use instance
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct PostToolUseInput {
     pub permission_mode: PermissionMode,
@@ -100,7 +142,7 @@ pub struct PostToolUseInput {
     pub tool_use_id: String, // Unique identifier for this tool use instance
 }
 
-#[derive(Debug, Display, Serialize, Deserialize)]
+#[derive(Debug, Display, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
 pub enum HookType {
@@ -109,7 +151,7 @@ pub enum HookType {
     Function,
 }
 
-#[derive(Debug, Display, Deserialize, Serialize)]
+#[derive(Debug, Display, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
 pub enum HookDecision {
@@ -120,7 +162,7 @@ pub enum HookDecision {
     Allow,
 }
 
-#[derive(Debug, Display, Deserialize, Serialize)]
+#[derive(Debug, Display, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
 pub enum HookEventName {
@@ -139,7 +181,7 @@ pub enum HookEventName {
     PermissionRequest,
     StopFailure,
 }
-#[derive(Debug, Display, Deserialize, Serialize)]
+#[derive(Debug, Display, Deserialize, Serialize, Clone)]
 #[strum(serialize_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 pub enum PermissionDecision {
@@ -148,7 +190,7 @@ pub enum PermissionDecision {
     Ask,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct PreToolUseHookOutput {
     #[serde(rename = "continue")]
@@ -252,7 +294,7 @@ macro_rules! impl_hook_output_methods {
 impl_hook_output_methods!(PreToolUseHookOutput);
 impl_hook_output_methods!(PostToolUseHookOutput);
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct PostToolUseHookOutput {
     pub cont: Option<bool>,
@@ -263,6 +305,7 @@ pub struct PostToolUseHookOutput {
     pub hook_specific_output: Option<HashMap<String, serde_json::Value>>,
     pub decision: HookDecision,
 }
+#[derive(Debug, Clone)]
 pub struct Hook(
     pub HookInput,
     pub Option<HookOutput>,
@@ -311,9 +354,6 @@ fn recv_hook_input(he: &HookEventName, h: &HookType) -> (HookInput, CommandReque
         _ => todo!(),
     }
 }
-pub trait HookFunction {
-    fn execute(&self) -> Result<HookOutput, ()>;
-}
 
 impl Hook {
     pub fn new(hook_event_name: HookEventName, hook_type: HookType) -> Self {
@@ -333,7 +373,7 @@ impl Hook {
         }
     }
 }
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, EnumAsInner, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum HookOutput {
     PreTool(PreToolUseHookOutput),
