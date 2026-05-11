@@ -9,5 +9,13 @@ git2 = "0.19"
 [profile.release]
 lto = true
 
-[build]
-rustflags = ["-C", "linker=lld", "-C", "link-arg=-fuse-ld=lld"]
+[lints.clippy]
+# Disallow the shortcuts
+unwrap_used = "deny"
+expect_used = "deny"
+# Disallow the question mark operator
+question_mark = "deny"
+# Disallow common combinators that bypass matching
+map_flatten = "deny"
+# Optional: force explicit matches over simple 'if let' for results
+single_match = "deny"

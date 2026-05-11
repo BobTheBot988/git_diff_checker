@@ -4,16 +4,24 @@ use git_diff_checker::check_file_modified;
 #[test]
 fn test_detects_modifications() {
     let repo_path = "test/test1";
-    let filename = "hello_world.c";
+    let filename = "src/hello_world.c";
+
+    // Reset the file to original state first to ensure clean test
+    std::process::Command::new("git")
+        .args(["checkout", "HEAD", "--", filename])
+        .current_dir(repo_path)
+        .output()
+        .expect("Failed to reset file");
 
     // Modify the file temporarily
     let current_path = std::path::Path::new(repo_path).join(filename);
-    let original_content = std::fs::read_to_string(&current_path)
-        .expect("Failed to read current file");
+    let original_content =
+        std::fs::read_to_string(&current_path).expect("Failed to read current file");
 
-    // Add a modification
-    std::fs::write(&current_path, format!("{}\n// test modification", original_content))
-        .expect("Failed to modify file");
+    // Modify an existing line (not just appending)
+    // Change "Hello" to "Hi" in the printf statement
+    let modified_content = original_content.replace("Hello", "Hi");
+    std::fs::write(&current_path, modified_content).expect("Failed to modify file");
 
     // Check that modification is detected
     let result = check_file_modified(repo_path, filename);
@@ -21,28 +29,41 @@ fn test_detects_modifications() {
     assert!(result.unwrap(), "Modification should be detected");
 
     // Restore original file
-    std::fs::write(&current_path, original_content)
-        .expect("Failed to restore original file");
+    std::fs::write(&current_path, original_content).expect("Failed to restore original file");
 }
 
 /// Test that no modifications are detected for an unmodified file
 #[test]
 fn test_no_modifications_detected() {
     let repo_path = "test/test1";
-    let filename = "hello_world.c";
+    let filename = "src/hello_world.c";
+
+    // Reset the file to original state first to ensure clean test
+    std::process::Command::new("git")
+        .args(["checkout", "HEAD", "--", filename])
+        .current_dir(repo_path)
+        .output()
+        .expect("Failed to reset file");
 
     // First check initial state is unmodified
     let result = check_file_modified(repo_path, filename);
-    assert!(result.is_ok(), "Check should succeed");
-    assert!(!result.unwrap(), "No modifications should be detected");
-    
+    let result = match result {
+        Ok(res) => res,
+        Err(e) => panic!("Result: {}", e),
+    };
+    assert!(!result, "No modifications should be detected");
+
     // Modify and restore to leave file unchanged
     let current_path = std::path::Path::new(repo_path).join(filename);
     let original_content = std::fs::read_to_string(&current_path).expect("Failed to read file");
-    std::fs::write(&current_path, format!("{}\n// temp line for testing", original_content))
-        .expect("Failed to modify");
+
+    // Modify an existing line (not just appending)
+    // Change "World" to "World!" in the printf statement
+    let modified_content = original_content.replace("World", "World!");
+    std::fs::write(&current_path, modified_content).expect("Failed to modify");
     let result = check_file_modified(repo_path, filename);
     assert!(result.unwrap(), "Modification should be detected");
-    std::fs::write(&current_path, original_content)
-        .expect("Failed to restore");
+
+    // Restore original file
+    std::fs::write(&current_path, original_content).expect("Failed to restore");
 }

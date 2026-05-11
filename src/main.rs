@@ -7,7 +7,7 @@ fn main() {
 
     //TODO make these 2 vars arguments from cli using clap
     let repo_path = "test/test1";
-    let filename = "hello_world.c";
+    let filename = "src/hello_world.c";
 
     // Check if file has been modified
     match check_file_modified(repo_path, filename) {

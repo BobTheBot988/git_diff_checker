@@ -62,11 +62,12 @@
       "Bash(/home/robertodr/gits/git_diff_checker/hooks/target/release/post_hook)",
       "Bash(/home/robertodr/gits/git_diff_checker/target/release/git_diff_checker)",
       "Bash(file *)",
-      "WebFetch(qwenlm.github.io)"
+      "WebFetch(qwenlm.github.io)",
+      "Bash(../..//target/release/git_diff_checker)"
     ]
   },
   "model": {
-    "name": "gemma3-e2b-5b"
+    "name": "qwen3-apex"
   },
   "mcpServers": {
     "foundryTools": {

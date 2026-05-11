@@ -4,34 +4,40 @@ use std::process::Command;
 #[derive(Debug, Clone)]
 pub struct HunkInfo {
     pub content: String,
-    pub original_start: usize,  // Starting line number in original file
-    pub original_count: usize,  // Number of lines in original file
-    pub new_start: usize,       // Starting line number in new file
-    pub new_count: usize,       // Number of lines in new file
+    pub original_start: usize, // Starting line number in original file
+    pub original_count: usize, // Number of lines in original file
+    pub new_start: usize,      // Starting line number in new file
+    pub new_count: usize,      // Number of lines in new file
 }
 
 /// Check if the file in the test repository has been modified since the git commit
 ///
 /// Returns:
-/// - Ok(true) if modifications were detected
-/// - Ok(false) if no modifications detected
+/// - Ok(true) if modifications were detected to original line content
+/// - Ok(false) if no modifications to original content detected
+///   (new lines, whitespace changes, and indentation changes are ignored)
 /// - Err(String) if an error occurred
 pub fn check_file_modified(repo_path: &str, filename: &str) -> Result<bool, String> {
-    // Get the original file content from git history
-    let output = Command::new("git")
-        .args(["show", &format!("HEAD:{}", filename)])
-        .current_dir(repo_path)
-        .output()
-        .map_err(|e| format!("Failed to execute git show: {}", e))?;
+    // Get original file content to determine line count
+    let original_content = get_original_file_content(repo_path, filename)?;
+    let original_line_count = original_content.lines().count();
 
-    let original_content = String::from_utf8_lossy(&output.stdout);
+    // Get diff hunks with line range info
+    let hunks = get_diff_hunks_with_ranges(repo_path, filename)?;
 
-    // Get the current working tree file content
-    let current_path = std::path::Path::new(repo_path).join(filename);
-    let current_content = std::fs::read_to_string(&current_path)
-        .map_err(|e| format!("Failed to read current file: {}", e))?;
+    if hunks.is_empty() {
+        return Ok(false); // No modifications detected
+    }
 
-    Ok(original_content != current_content)
+    // Check if any hunk affects original line content
+    // (deletions or modifications, not just additions)
+    for hunk in &hunks {
+        if hunk_affects_original_content(hunk, original_line_count) {
+            return Ok(true);
+        }
+    }
+
+    Ok(false) // Only new lines or whitespace changes, no original content modified
 }
 
 /// Parse hunk header line like "@@ -1,3 +1,5 @@"
@@ -48,7 +54,7 @@ fn parse_hunk_header(header: &str) -> Option<(usize, usize, usize, usize)> {
     }
 
     let orig_range = parts[1]; // e.g., "-1,3"
-    let new_range = parts[2];  // e.g., "+1,5"
+    let new_range = parts[2]; // e.g., "+1,5"
 
     let orig = parse_range(orig_range);
     let new = parse_range(new_range);
@@ -85,7 +91,10 @@ fn parse_range(range: &str) -> Option<(usize, usize)> {
 }
 
 /// Get the diff hunks for a modified file with line range information
-pub fn get_diff_hunks_with_ranges(repo_path: &str, filename: &str) -> Result<Vec<HunkInfo>, String> {
+pub fn get_diff_hunks_with_ranges(
+    repo_path: &str,
+    filename: &str,
+) -> Result<Vec<HunkInfo>, String> {
     // Get the full diff output
     let output = Command::new("git")
         .args(["diff", "HEAD", filename])
@@ -133,7 +142,10 @@ pub fn get_diff_hunks_with_ranges(repo_path: &str, filename: &str) -> Result<Vec
             // Hunk header - parse line ranges
             if let Some((orig_start, orig_count, new_start, new_count)) = parse_hunk_header(line) {
                 if !found_diff_header {
-                    current_hunk = format!("diff --git a/{} b/{}\n--- a/{}\n+++ b/{}\n", filename, filename, filename, filename);
+                    current_hunk = format!(
+                        "diff --git a/{} b/{}\n--- a/{}\n+++ b/{}\n",
+                        filename, filename, filename, filename
+                    );
                     found_diff_header = true;
                 }
                 current_hunk.push_str(line);
@@ -173,37 +185,80 @@ fn get_original_file_content(repo_path: &str, filename: &str) -> Result<String, 
         .output()
         .map_err(|e| format!("Failed to execute git show: {}", e))?;
 
-    String::from_utf8(output.stdout).map_err(|e| format!("Failed to convert output to UTF-8: {}", e))
+    String::from_utf8(output.stdout)
+        .map_err(|e| format!("Failed to convert output to UTF-8: {}", e))
 }
 
-/// Check if a hunk actually modifies original line content (not just adds at end)
+/// Check if a hunk actually modifies original line content (not just adds at end or whitespace changes)
+/// 
+/// Returns true only if:
+/// - Original lines are deleted (not just replaced)
+/// - Original line content actually changes (not just whitespace/indentation)
 fn hunk_affects_original_content(hunk: &HunkInfo, original_line_count: usize) -> bool {
     // Parse the hunk content to see if it modifies existing lines
     let mut has_deletions = false;
+    let mut has_non_whitespace_changes = false;
+
+    // Track original lines (lines starting with -) and their new versions
+    let mut original_lines: Vec<String> = Vec::new();
+    let mut new_lines: Vec<String> = Vec::new();
 
     for line in hunk.content.lines() {
         if line.starts_with('-') && !line.starts_with("---") {
             has_deletions = true;
+            original_lines.push(line[1..].to_string()); // Remove leading '-'
+        } else if line.starts_with('+') && !line.starts_with("+++") {
+            new_lines.push(line[1..].to_string()); // Remove leading '+'
         }
     }
 
-    // If there are deletions (lines starting with -), original content is being modified
-    if has_deletions {
+    // If there are deletions but no corresponding additions, it's a real deletion
+    if has_deletions && new_lines.is_empty() {
         return true;
     }
 
-    // If there are only additions, check if it's appending beyond original file
-    let original_end = hunk.original_start.saturating_add(hunk.original_count).saturating_sub(1);
-    let new_end = hunk.new_start.saturating_add(hunk.new_count).saturating_sub(1);
+    // Check if original lines were actually modified (not just whitespace)
+    // We compare line by line where possible
+    let min_len = original_lines.len().min(new_lines.len());
+    for i in 0..min_len {
+        let orig = original_lines[i].trim();
+        let new = new_lines[i].trim();
+        if orig != new {
+            // The non-whitespace content differs - this is a real modification
+            has_non_whitespace_changes = true;
+            break;
+        }
+    }
+
+    // If there are more original lines than new lines, some were deleted
+    if original_lines.len() > new_lines.len() {
+        return true;
+    }
+
+    // If content actually changed (different non-whitespace text), it's a modification
+    if has_non_whitespace_changes {
+        return true;
+    }
+
+    // If there are only additions beyond original content, check if it's appending
+    let original_end = hunk
+        .original_start
+        .saturating_add(hunk.original_count)
+        .saturating_sub(1);
+    let new_end = hunk
+        .new_start
+        .saturating_add(hunk.new_count)
+        .saturating_sub(1);
 
     // If the hunk ends exactly at the original file boundary and new file is longer,
     // it's just appending, not modifying original content
-    if original_end == original_line_count && new_end > original_end && !has_deletions {
+    if original_end == original_line_count && new_end > original_end {
         return false; // Just appending lines
     }
 
     // Default: check if it affects lines within the original file bounds
-    hunk.original_start <= original_line_count
+    // If we get here, there were no actual modifications detected
+    false
 }
 
 /// Build a selective patch containing only hunks that affect original lines
@@ -267,7 +322,8 @@ pub fn selective_revert(repo_path: &str, filename: &str) -> Result<usize, String
     }
 
     // Count how many original-line hunks were reverted
-    let reverted_count = hunks.iter()
+    let reverted_count = hunks
+        .iter()
         .filter(|h| hunk_affects_original_content(h, original_line_count))
         .count();
 
@@ -280,14 +336,20 @@ mod tests {
 
     #[test]
     fn test_check_unmodified_file() {
-        let result = check_file_modified("test/test1", "hello_world.c");
-        assert!(result.is_ok());
-        assert!(!result.unwrap());
+        let result = check_file_modified("test/test1/src", "hello_world.c");
+        let a = match result {
+            Ok(b) => b,
+            Err(e) => {
+                // eprintln!("Error: {}", e.as_str());
+                panic!("Ciao: {}", e.as_str());
+            }
+        };
+        assert!(!a, "value:{} should be false", a);
     }
 
     #[test]
     fn test_get_diff_hunks_unmodified() {
-        let result = get_diff_hunks_with_ranges("test/test1", "hello_world.c");
+        let result = get_diff_hunks_with_ranges("test/test1", "src/hello_world.c");
         assert!(result.is_ok());
         assert!(result.unwrap().is_empty());
     }
