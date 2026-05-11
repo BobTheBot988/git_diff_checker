@@ -5,7 +5,7 @@ use common::{
     PostToolUseHookOutput,
 };
 use std::path::{Path, PathBuf};
-use std::{env, io, process};
+use std::{io, process};
 
 // ==========================================
 // Git Diff Checker Logic

@@ -113,7 +113,7 @@ pub enum HookType {
     Function,
 }
 
-#[derive(Debug, Display, Deserialize, Serialize, Clone)]
+#[derive(Debug, Display, Deserialize, Serialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
 pub enum HookDecision {
@@ -287,7 +287,7 @@ impl HookEngine {
             }
             Err(_) => {
                 eprintln!("Hook execution failed.");
-                process::exit(1);
+                process::exit(2);
             }
         }
     }
