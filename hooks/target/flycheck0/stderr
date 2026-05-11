@@ -1,5 +1,8 @@
-   0.045958494s  INFO prepare_target{force=false package_id=pre_hook v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/pre) target="pre_hook"}: cargo::core::compiler::fingerprint: fingerprint error for pre_hook v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/pre)/Check { test: false }/TargetInner { name: "pre_hook", doc: true, ..: with_path("/home/softdream/Programming/gits/git_diff_checker/hooks/pre/src/main.rs", Edition2021) }
-   0.045975566s  INFO prepare_target{force=false package_id=pre_hook v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/pre) target="pre_hook"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/softdream/Programming/gits/git_diff_checker/hooks/target/debug/.fingerprint/pre_hook-baa5a9248575aef4/bin-pre_hook`
+    Updating crates.io index
+     Locking 1 package to latest compatible version
+      Adding enum-as-inner v0.7.0
+   0.095637425s  INFO prepare_target{force=false package_id=common v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/common) target="common"}: cargo::core::compiler::fingerprint: fingerprint error for common v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/common)/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("common", ["lib"], "/home/softdream/Programming/gits/git_diff_checker/hooks/common/src/lib.rs", Edition2024) }
+   0.095651131s  INFO prepare_target{force=false package_id=common v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/common) target="common"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/softdream/Programming/gits/git_diff_checker/hooks/target/debug/.fingerprint/common-3b573c9ed97ec9d9/lib-common`
 
 Caused by:
     No such file or directory (os error 2)
@@ -41,8 +44,8 @@ Stack backtrace:
   24: __libc_start_call_main
   25: __libc_start_main_alias_1
   26: <unknown>
-   0.050568518s  INFO prepare_target{force=false package_id=common v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/common) target="common"}: cargo::core::compiler::fingerprint: fingerprint error for common v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/common)/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("common", ["lib"], "/home/softdream/Programming/gits/git_diff_checker/hooks/common/src/lib.rs", Edition2024) }
-   0.050576724s  INFO prepare_target{force=false package_id=common v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/common) target="common"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/softdream/Programming/gits/git_diff_checker/hooks/target/debug/.fingerprint/common-ba151992fe6860a5/lib-common`
+   0.101765908s  INFO prepare_target{force=false package_id=common v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/common) target="common"}: cargo::core::compiler::fingerprint: fingerprint error for common v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/common)/Check { test: true }/TargetInner { name_inferred: true, ..: lib_target("common", ["lib"], "/home/softdream/Programming/gits/git_diff_checker/hooks/common/src/lib.rs", Edition2024) }
+   0.101786747s  INFO prepare_target{force=false package_id=common v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/common) target="common"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/softdream/Programming/gits/git_diff_checker/hooks/target/debug/.fingerprint/common-0608943b04fd4572/test-lib-common`
 
 Caused by:
     No such file or directory (os error 2)
@@ -53,40 +56,168 @@ Stack backtrace:
    2: cargo::core::compiler::fingerprint::_compare_old_fingerprint
    3: cargo::core::compiler::fingerprint::prepare_target
    4: cargo::core::compiler::compile
-   5: cargo::core::compiler::compile
-   6: <cargo::core::compiler::build_runner::BuildRunner>::compile
-   7: cargo::ops::cargo_compile::compile_ws
-   8: cargo::ops::cargo_compile::compile_with_exec
-   9: cargo::ops::cargo_compile::compile
-  10: cargo::commands::check::exec
-  11: <cargo::cli::Exec>::exec
-  12: cargo::main
-  13: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
-  14: std::rt::lang_start::<()>::{closure#0}
-  15: core::ops::function::impls::<impl core::ops::function::FnOnce<A> for &F>::call_once
+   5: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   6: cargo::ops::cargo_compile::compile_ws
+   7: cargo::ops::cargo_compile::compile_with_exec
+   8: cargo::ops::cargo_compile::compile
+   9: cargo::commands::check::exec
+  10: <cargo::cli::Exec>::exec
+  11: cargo::main
+  12: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  13: std::rt::lang_start::<()>::{closure#0}
+  14: core::ops::function::impls::<impl core::ops::function::FnOnce<A> for &F>::call_once
              at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/ops/function.rs:287:21
-  16: std::panicking::catch_unwind::do_call
+  15: std::panicking::catch_unwind::do_call
              at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
-  17: std::panicking::catch_unwind
+  16: std::panicking::catch_unwind
              at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
-  18: std::panic::catch_unwind
+  17: std::panic::catch_unwind
              at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
-  19: std::rt::lang_start_internal::{{closure}}
+  18: std::rt::lang_start_internal::{{closure}}
              at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:175:24
-  20: std::panicking::catch_unwind::do_call
+  19: std::panicking::catch_unwind::do_call
              at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
-  21: std::panicking::catch_unwind
+  20: std::panicking::catch_unwind
              at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
-  22: std::panic::catch_unwind
+  21: std::panic::catch_unwind
              at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
-  23: std::rt::lang_start_internal
+  22: std::rt::lang_start_internal
              at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:171:5
-  24: main
-  25: __libc_start_call_main
-  26: __libc_start_main_alias_1
-  27: <unknown>
-   0.051796216s  INFO prepare_target{force=false package_id=pre_hook v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/pre) target="pre_hook"}: cargo::core::compiler::fingerprint: fingerprint error for pre_hook v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/pre)/Check { test: true }/TargetInner { name: "pre_hook", doc: true, ..: with_path("/home/softdream/Programming/gits/git_diff_checker/hooks/pre/src/main.rs", Edition2021) }
-   0.051801987s  INFO prepare_target{force=false package_id=pre_hook v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/pre) target="pre_hook"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/softdream/Programming/gits/git_diff_checker/hooks/target/debug/.fingerprint/pre_hook-494a58fbcf2c6289/test-bin-pre_hook`
+  23: main
+  24: __libc_start_call_main
+  25: __libc_start_main_alias_1
+  26: <unknown>
+   0.102156042s  INFO prepare_target{force=false package_id=post_hook v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/post) target="post_hook"}: cargo::core::compiler::fingerprint: fingerprint error for post_hook v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/post)/Check { test: false }/TargetInner { name: "post_hook", doc: true, ..: with_path("/home/softdream/Programming/gits/git_diff_checker/hooks/post/src/main.rs", Edition2021) }
+   0.102166602s  INFO prepare_target{force=false package_id=post_hook v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/post) target="post_hook"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/softdream/Programming/gits/git_diff_checker/hooks/target/debug/.fingerprint/post_hook-f9c19d759069c48e/bin-post_hook`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: cargo_util::paths::read_bytes
+   1: cargo_util::paths::read
+   2: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   3: cargo::core::compiler::fingerprint::prepare_target
+   4: cargo::core::compiler::compile
+   5: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   6: cargo::ops::cargo_compile::compile_ws
+   7: cargo::ops::cargo_compile::compile_with_exec
+   8: cargo::ops::cargo_compile::compile
+   9: cargo::commands::check::exec
+  10: <cargo::cli::Exec>::exec
+  11: cargo::main
+  12: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  13: std::rt::lang_start::<()>::{closure#0}
+  14: core::ops::function::impls::<impl core::ops::function::FnOnce<A> for &F>::call_once
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/ops/function.rs:287:21
+  15: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  16: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  17: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  18: std::rt::lang_start_internal::{{closure}}
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:175:24
+  19: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  20: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  21: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  22: std::rt::lang_start_internal
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:171:5
+  23: main
+  24: __libc_start_call_main
+  25: __libc_start_main_alias_1
+  26: <unknown>
+   0.102626907s  INFO prepare_target{force=false package_id=post_hook v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/post) target="post_hook"}: cargo::core::compiler::fingerprint: fingerprint error for post_hook v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/post)/Check { test: true }/TargetInner { name: "post_hook", doc: true, ..: with_path("/home/softdream/Programming/gits/git_diff_checker/hooks/post/src/main.rs", Edition2021) }
+   0.102637126s  INFO prepare_target{force=false package_id=post_hook v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/post) target="post_hook"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/softdream/Programming/gits/git_diff_checker/hooks/target/debug/.fingerprint/post_hook-c030c6488ee3fe95/test-bin-post_hook`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: cargo_util::paths::read_bytes
+   1: cargo_util::paths::read
+   2: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   3: cargo::core::compiler::fingerprint::prepare_target
+   4: cargo::core::compiler::compile
+   5: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   6: cargo::ops::cargo_compile::compile_ws
+   7: cargo::ops::cargo_compile::compile_with_exec
+   8: cargo::ops::cargo_compile::compile
+   9: cargo::commands::check::exec
+  10: <cargo::cli::Exec>::exec
+  11: cargo::main
+  12: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  13: std::rt::lang_start::<()>::{closure#0}
+  14: core::ops::function::impls::<impl core::ops::function::FnOnce<A> for &F>::call_once
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/ops/function.rs:287:21
+  15: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  16: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  17: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  18: std::rt::lang_start_internal::{{closure}}
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:175:24
+  19: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  20: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  21: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  22: std::rt::lang_start_internal
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:171:5
+  23: main
+  24: __libc_start_call_main
+  25: __libc_start_main_alias_1
+  26: <unknown>
+   0.102891895s  INFO prepare_target{force=false package_id=pre_hook v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/pre) target="pre_hook"}: cargo::core::compiler::fingerprint: fingerprint error for pre_hook v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/pre)/Check { test: false }/TargetInner { name: "pre_hook", doc: true, ..: with_path("/home/softdream/Programming/gits/git_diff_checker/hooks/pre/src/main.rs", Edition2021) }
+   0.102898027s  INFO prepare_target{force=false package_id=pre_hook v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/pre) target="pre_hook"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/softdream/Programming/gits/git_diff_checker/hooks/target/debug/.fingerprint/pre_hook-81ad9c7accc339ff/bin-pre_hook`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: cargo_util::paths::read_bytes
+   1: cargo_util::paths::read
+   2: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   3: cargo::core::compiler::fingerprint::prepare_target
+   4: cargo::core::compiler::compile
+   5: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   6: cargo::ops::cargo_compile::compile_ws
+   7: cargo::ops::cargo_compile::compile_with_exec
+   8: cargo::ops::cargo_compile::compile
+   9: cargo::commands::check::exec
+  10: <cargo::cli::Exec>::exec
+  11: cargo::main
+  12: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  13: std::rt::lang_start::<()>::{closure#0}
+  14: core::ops::function::impls::<impl core::ops::function::FnOnce<A> for &F>::call_once
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/ops/function.rs:287:21
+  15: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  16: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  17: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  18: std::rt::lang_start_internal::{{closure}}
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:175:24
+  19: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  20: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  21: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  22: std::rt::lang_start_internal
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:171:5
+  23: main
+  24: __libc_start_call_main
+  25: __libc_start_main_alias_1
+  26: <unknown>
+   0.103102501s  INFO prepare_target{force=false package_id=pre_hook v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/pre) target="pre_hook"}: cargo::core::compiler::fingerprint: fingerprint error for pre_hook v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/pre)/Check { test: true }/TargetInner { name: "pre_hook", doc: true, ..: with_path("/home/softdream/Programming/gits/git_diff_checker/hooks/pre/src/main.rs", Edition2021) }
+   0.103110727s  INFO prepare_target{force=false package_id=pre_hook v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/pre) target="pre_hook"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/softdream/Programming/gits/git_diff_checker/hooks/target/debug/.fingerprint/pre_hook-17515380875d2ef8/test-bin-pre_hook`
 
 Caused by:
     No such file or directory (os error 2)
@@ -129,4 +260,6 @@ Stack backtrace:
   25: __libc_start_main_alias_1
   26: <unknown>
     Checking common v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/common)
-error: could not compile `common` (lib) due to 1 previous error
+    Checking pre_hook v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/pre)
+    Checking post_hook v0.1.0 (/home/softdream/Programming/gits/git_diff_checker/hooks/post)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.39s
