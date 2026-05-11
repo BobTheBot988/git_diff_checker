@@ -33,11 +33,24 @@ fn run_git_diff_checker(
     let output = if binary_path.exists() {
         process::Command::new(binary_path)
             .current_dir(project_root)
-            .args(["-r", repo_path.to_str().unwrap(), "-f", filename.to_str().unwrap()])
+            .args([
+                "-r",
+                repo_path.to_str().unwrap(),
+                "-f",
+                filename.to_str().unwrap(),
+            ])
             .output()
     } else {
         process::Command::new("cargo")
-            .args(["run", "--release", "--", "-r", repo_path.to_str().unwrap(), "-f", filename.to_str().unwrap()])
+            .args([
+                "run",
+                "--release",
+                "--",
+                "-r",
+                repo_path.to_str().unwrap(),
+                "-f",
+                filename.to_str().unwrap(),
+            ])
             .current_dir(project_root)
             .output()
     };
@@ -68,11 +81,11 @@ fn parse_git_diff_checker_output(output: &str) -> (bool, bool) {
 struct GitDiffPlugin;
 
 impl HookHandler for GitDiffPlugin {
-    fn execute(&self, hook: &mut Hook) -> Result<HookOutput, ()> {
+    fn execute(&self, hook: &mut Hook) -> Result<HookOutput, String> {
         let project_root = get_project_root(hook);
 
         // Get the CommandRequest to access tool_input
-        let req = hook.4.as_ref().ok_or(())?;
+        let req = hook.4.clone().expect("Error command req");
 
         // Extract file_path and repo_path from tool_input
         // tool_input contains: {"file_path": "...", "repo_path": "..."}
@@ -92,17 +105,21 @@ impl HookHandler for GitDiffPlugin {
                     .unwrap_or("src/hello_world.c");
 
                 // Use canonicalize for guaranteed absolute paths
-                let repo_path = Path::new(&repo_path_arg).canonicalize()
+                let repo_path = Path::new(&repo_path_arg)
+                    .canonicalize()
                     .unwrap_or_else(|_| repo_path_arg.clone().into());
-                let filename = Path::new(&file_path_arg).canonicalize()
+                let filename = Path::new(&file_path_arg)
+                    .canonicalize()
                     .unwrap_or_else(|_| file_path_arg.clone().into());
 
                 (repo_path, filename)
             }
             None => {
-                let repo_path = Path::new("test/test1").canonicalize()
+                let repo_path = Path::new("test/test1")
+                    .canonicalize()
                     .unwrap_or_else(|_| "test/test1".to_string().into());
-                let filename = Path::new("src/hello_world.c").canonicalize()
+                let filename = Path::new("src/hello_world.c")
+                    .canonicalize()
                     .unwrap_or_else(|_| "src/hello_world.c".to_string().into());
                 (repo_path, filename)
             }
@@ -111,29 +128,18 @@ impl HookHandler for GitDiffPlugin {
         // Ensure we are actually in a PostToolUse context
         let _input = match hook.0.as_post_tool_use() {
             Some(i) => i,
-            None => return Err(()), // Or handle as unexpected event
+            None => panic!("as_post_tool_use failed"), // Or handle as unexpected event
         };
 
-        // 1. Run the external checker with repo_path and filename
         let check_output = match run_git_diff_checker(&project_root, &repo_path, &filename) {
             Ok(out) => out,
             Err(e) => {
-                return Ok(HookOutput::PostTool(PostToolUseHookOutput {
-                    cont: Some(false),
-                    stop_reason: Some(e),
-                    suppress_output: None,
-                    system_message: None,
-                    reason: None,
-                    hook_specific_output: None,
-                    decision: HookDecision::Deny,
-                }));
+                return Err(format!("Failed git_diff_checker: {}", e));
             }
         };
 
-        // 2. Parse Results
         let (detected, reverted) = parse_git_diff_checker_output(&check_output);
 
-        // 3. Construct the response
         let reason = format!(
             "git_diff_checker: {}{}",
             if detected {
@@ -151,7 +157,16 @@ impl HookHandler for GitDiffPlugin {
         // Use a decision logic: If modifications were detected but NOT reverted, we might want to block.
         // If reverted or clean, we allow.
         let decision = if detected && !reverted {
-            HookDecision::Deny
+            return Err(HookOutput::PostTool(PostToolUseHookOutput {
+                cont: Some(true),
+                stop_reason: Some(reason),
+                suppress_output: None,
+                system_message: None,
+                reason: None,
+                hook_specific_output: None, // You can populate this with a HashMap if needed
+                decision: HookDecision::Deny,
+            })
+            .to_string());
         } else {
             HookDecision::Allow
         };

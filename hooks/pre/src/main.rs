@@ -40,12 +40,12 @@ fn is_in_src_dir(file_path: &str, project_root: &Path) -> bool {
 pub struct MyPlugin;
 
 impl HookHandler for MyPlugin {
-    fn execute(&self, hook: &mut Hook) -> Result<HookOutput, ()> {
+    fn execute(&self, hook: &mut Hook) -> Result<HookOutput, String> {
         let project_root = hook.4.clone().unwrap().cwd.unwrap();
         let res = hook.0.as_pre_tool_use();
         let hi = match res {
             Some(a) => a,
-            None => panic!(""),
+            None => panic!("as_pre_tool_use failed!"),
         };
 
         let tool_name: &str = hi.tool_name.as_str();
@@ -69,11 +69,7 @@ impl HookHandler for MyPlugin {
                 .unwrap_or("");
 
             if file_path.is_empty() {
-                return Ok(PreToolUseHookOutput::make_pre_tool_output(
-                    common::HookDecision::Deny,
-                    true,
-                    format!("No file path provided for {}", tool_name),
-                ));
+                return Err(format!("No file path provided for {}", tool_name));
             }
 
             // Logic check: only allow if in src/
@@ -84,13 +80,9 @@ impl HookHandler for MyPlugin {
                     format!("File '{}' is inside src/ whitelist", file_path),
                 ));
             } else {
-                return Ok(PreToolUseHookOutput::make_pre_tool_output(
-                    common::HookDecision::Deny,
-                    false, // Stop execution because it's outside src/
-                    format!(
-                        "Only files inside src/ can be modified. '{}' is outside.",
-                        file_path
-                    ),
+                return Err(format!(
+                    "Only files inside src/ can be modified. '{}' is outside.",
+                    file_path
                 ));
             }
         }
@@ -136,6 +128,7 @@ mod tests {
         let req = CommandRequest {
             hook_event_name: Some("PreToolUse".to_string()),
             cwd: Some(PathBuf::from(cwd)),
+            tool_input: None,
             extra_fields: HashMap::new(),
         };
 
