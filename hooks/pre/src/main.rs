@@ -1,18 +1,13 @@
 #!/usr/bin/env -S cargo -E run
-use common::{
-    CommandRequest, Hook, HookFunction, HookInput, HookKind, HookOutput, PreToolUseHookOutput,
-    PreToolUseInput,
-};
-use std::collections::HashMap;
 /// Qwen Code PreToolUse Hook: Enforce src/ directory whitelist for file modifications.
 ///
 /// This hook:
 /// - Allows read operations (read_file, glob, grep_search) on any file
 /// - Allows write/edit operations ONLY on files inside src/
 /// - Denies write/edit operations on files outside src/
+use common::{Hook, HookEngine, HookHandler, HookOutput, PreToolUseHookOutput};
 use std::io;
 use std::path::Path;
-pub struct NewHook(pub Hook);
 
 fn is_in_src_dir(file_path: &str, project_root: &Path) -> bool {
     let p = Path::new(file_path);
@@ -34,22 +29,26 @@ fn is_in_src_dir(file_path: &str, project_root: &Path) -> bool {
     let canonical_src = src_dir.canonicalize().unwrap_or(src_dir);
 
     // THIS IS THE CRITICAL DEBUG PRINT
-    eprintln!("TARGET: {:?}", canonical_target);
-    eprintln!("WHITELIST: {:?}", canonical_src);
+    // eprintln!("TARGET: {:?}", canonical_target);
+    // eprintln!("WHITELIST: {:?}", canonical_src);
 
     let result = canonical_target.starts_with(&canonical_src);
-    eprintln!("RESULT: {}", result);
+    // eprintln!("RESULT: {}", result);
 
     result
 }
+struct MyPlugin;
 
-impl HookFunction for NewHook {
-    fn execute(&self) -> Result<HookOutput, ()> {
-        let mut h: Hook = self.0;
-        let project_root = h.4.unwrap().cwd.unwrap();
-        let res = HookKind::from(h.0).as_ref();
+impl HookHandler for MyPlugin {
+    fn execute(&self, hook: &mut Hook) -> Result<HookOutput, ()> {
+        let project_root = hook.4.clone().unwrap().cwd.unwrap();
+        let res = hook.0.as_pre_tool_use();
+        let hi = match res {
+            Some(a) => a,
+            None => panic!(""),
+        };
 
-        let tool_name: &str = PreToolUseInput().tool_name.as_str();
+        let tool_name: &str = hi.tool_name.as_str();
 
         // 2. Read operations
         let read_tools = ["read_file", "glob", "grep_search", "list_directory"];
@@ -60,15 +59,10 @@ impl HookFunction for NewHook {
                 format!("Read operation '{}' is allowed on any file", tool_name),
             ));
         }
-        //TODO: implemenet python like decorator
 
-        // 3. Write/Edit operations
         let write_tools = ["write_file", "edit"];
         if write_tools.contains(&tool_name) {
-            // Use .as_str() directly on the Value
-            let file_path = self
-                .0
-                 .0
+            let file_path = hi
                 .tool_input
                 .get("file_path")
                 .and_then(|v| v.as_str())
@@ -111,7 +105,8 @@ impl HookFunction for NewHook {
 }
 
 fn main() -> io::Result<()> {
-    Hook::new(common::HookEventName::PreToolUse, common::HookType::Command);
-    NewHook.execution();
+    let myplugin = MyPlugin;
+    let h = Hook::new(common::HookEventName::PreToolUse, common::HookType::Command);
+    HookEngine::run_hook(myplugin, h);
     Ok(())
 }
