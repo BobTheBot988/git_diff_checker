@@ -14,10 +14,16 @@ macro_rules! impl_check_valid_type {
     ($target_struct:ident, $event_name:expr) => {
         impl $target_struct {
             fn check_correctness(req: &CommandRequest) -> bool {
+                // Check both direct hook_event_name and extra_fields (for flattened case)
                 req.hook_event_name
                     .as_ref()
                     .map(|n| n.eq_ignore_ascii_case($event_name))
                     .unwrap_or(false)
+                    || req.extra_fields
+                        .get("hook_event_name")
+                        .and_then(|v| v.as_str())
+                        .map(|n| n.eq_ignore_ascii_case($event_name))
+                        .unwrap_or(false)
             }
         }
     };
@@ -33,10 +39,19 @@ macro_rules! impl_try_from_request {
                     return Err(format!("Not a {} event", $event_name));
                 }
 
-                serde_json::from_value(serde_json::Value::Object(
-                    req.extra_fields.into_iter().collect(),
-                ))
-                .map_err(|e| e.to_string())
+                // Start with extra_fields (which contains permission_mode, tool_name, tool_use_id, etc.)
+                let mut obj: serde_json::Map<String, serde_json::Value> =
+                    req.extra_fields.into_iter().collect();
+
+                // Add tool_input from req if available (it's a direct field in CommandRequest)
+                if let Some(tool_input) = req.tool_input.as_ref() {
+                    obj.insert("tool_input".to_string(), serde_json::Value::Object(tool_input.clone().into_iter().collect()));
+                } else {
+                    obj.insert("tool_input".to_string(), serde_json::Value::Object(serde_json::Map::new()));
+                }
+
+                serde_json::from_value(serde_json::Value::Object(obj))
+                    .map_err(|e| e.to_string())
             }
         }
     };
@@ -153,6 +168,7 @@ pub enum HookEventName {
 pub struct CommandRequest {
     pub hook_event_name: Option<String>,
     pub cwd: Option<PathBuf>,
+    pub tool_input: Option<HashMap<String, serde_json::Value>>,
     #[serde(flatten)]
     pub extra_fields: HashMap<String, serde_json::Value>,
 }
@@ -311,6 +327,7 @@ impl Hook {
 }
 
 fn recv_hook_input(he: &HookEventName, h: &HookType) -> (HookInput, CommandRequest) {
+    eprintln!("DEBUG recv_hook_input: he={:?}", he);
     match h {
         HookType::Command => {
             let stdin = io::stdin();
@@ -320,24 +337,44 @@ fn recv_hook_input(he: &HookEventName, h: &HookType) -> (HookInput, CommandReque
 
             for item in stream {
                 let req = match item {
-                    Ok(r) => r,
-                    Err(_) => continue,
+                    Ok(r) => {
+                        eprintln!("DEBUG recv_hook_input: parsed CommandRequest");
+                        eprintln!("DEBUG extra_fields: {:?}", r.extra_fields);
+                        r
+                    }
+                    Err(e) => {
+                        eprintln!("DEBUG recv_hook_input: parse error: {}", e);
+                        continue
+                    }
                 };
 
                 match he {
                     HookEventName::PreToolUse => {
-                        if let Ok(input) = PreToolUseInput::try_from(req.clone()) {
-                            return (HookInput::PreToolUse(input), req);
+                        match PreToolUseInput::try_from(req.clone()) {
+                            Ok(input) => {
+                                eprintln!("DEBUG recv_hook_input: converted to PreToolUseInput");
+                                return (HookInput::PreToolUse(input), req);
+                            }
+                            Err(e) => {
+                                eprintln!("DEBUG recv_hook_input: failed to convert to PreToolUseInput: {}", e);
+                            }
                         }
                     }
                     HookEventName::PostToolUse => {
-                        if let Ok(input) = PostToolUseInput::try_from(req.clone()) {
-                            return (HookInput::PostToolUse(input), req);
+                        match PostToolUseInput::try_from(req.clone()) {
+                            Ok(input) => {
+                                eprintln!("DEBUG recv_hook_input: converted to PostToolUseInput");
+                                return (HookInput::PostToolUse(input), req);
+                            }
+                            Err(e) => {
+                                eprintln!("DEBUG recv_hook_input: failed to convert to PostToolUseInput: {}", e);
+                            }
                         }
                     }
                     _ => todo!(),
                 }
             }
+            eprintln!("DEBUG recv_hook_input: no valid input found");
             process::exit(2);
         }
         _ => todo!(),

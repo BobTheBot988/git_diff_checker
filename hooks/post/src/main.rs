@@ -19,20 +19,25 @@ fn get_project_root(hook: &Hook) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-fn run_git_diff_checker(project_root: &Path) -> Result<String, String> {
+fn run_git_diff_checker(
+    project_root: &Path,
+    repo_path: &Path,
+    filename: &Path,
+) -> Result<String, String> {
     let binary_path = project_root
         .join("target")
         .join("release")
         .join("git_diff_checker");
 
-    // Try release binary first, then fall back to cargo run
+    // Try release binary first, then fall back to cargo run with args
     let output = if binary_path.exists() {
         process::Command::new(binary_path)
             .current_dir(project_root)
+            .args(["-r", repo_path.to_str().unwrap(), "-f", filename.to_str().unwrap()])
             .output()
     } else {
         process::Command::new("cargo")
-            .args(["run", "--release"])
+            .args(["run", "--release", "--", "-r", repo_path.to_str().unwrap(), "-f", filename.to_str().unwrap()])
             .current_dir(project_root)
             .output()
     };
@@ -66,14 +71,51 @@ impl HookHandler for GitDiffPlugin {
     fn execute(&self, hook: &mut Hook) -> Result<HookOutput, ()> {
         let project_root = get_project_root(hook);
 
+        // Get the CommandRequest to access tool_input
+        let req = hook.4.as_ref().ok_or(())?;
+
+        // Extract file_path and repo_path from tool_input
+        // tool_input contains: {"file_path": "...", "repo_path": "..."}
+        let (repo_path, filename) = match req.tool_input.as_ref() {
+            Some(tool_input) => {
+                // Get repo_path from tool_input (optional, default to test/test1)
+                let repo_path_arg = tool_input
+                    .get("repo_path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("test/test1")
+                    .to_string();
+
+                // Get file_path from tool_input
+                let file_path_arg = tool_input
+                    .get("file_path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("src/hello_world.c");
+
+                // Use canonicalize for guaranteed absolute paths
+                let repo_path = Path::new(&repo_path_arg).canonicalize()
+                    .unwrap_or_else(|_| repo_path_arg.clone().into());
+                let filename = Path::new(&file_path_arg).canonicalize()
+                    .unwrap_or_else(|_| file_path_arg.clone().into());
+
+                (repo_path, filename)
+            }
+            None => {
+                let repo_path = Path::new("test/test1").canonicalize()
+                    .unwrap_or_else(|_| "test/test1".to_string().into());
+                let filename = Path::new("src/hello_world.c").canonicalize()
+                    .unwrap_or_else(|_| "src/hello_world.c".to_string().into());
+                (repo_path, filename)
+            }
+        };
+
         // Ensure we are actually in a PostToolUse context
         let _input = match hook.0.as_post_tool_use() {
             Some(i) => i,
             None => return Err(()), // Or handle as unexpected event
         };
 
-        // 1. Run the external checker
-        let check_output = match run_git_diff_checker(&project_root) {
+        // 1. Run the external checker with repo_path and filename
+        let check_output = match run_git_diff_checker(&project_root, &repo_path, &filename) {
             Ok(out) => out,
             Err(e) => {
                 return Ok(HookOutput::PostTool(PostToolUseHookOutput {
