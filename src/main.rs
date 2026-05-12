@@ -1,16 +1,41 @@
+use clap::Parser;
 use git_diff_checker::{check_file_modified, get_diff_hunks_with_ranges, selective_revert};
+use std::path::Path;
+
+#[derive(Parser, Debug)]
+#[command(name = "git_diff_checker")]
+#[command(about = "Check if files have been modified since git commit and selectively revert")]
+struct Args {
+    /// Path to the git repository (absolute or relative)
+    #[arg(short, long, default_value = "test/test1")]
+    repo_path: String,
+
+    /// Path to the file to check (absolute or relative to repo_path)
+    #[arg(short, long, default_value = "src/hello_world.c")]
+    filename: String,
+}
 
 fn main() {
+    let args = Args::parse();
+
     println!(
         "CHECK FIRST COMMIT WITH A DIFF COMMAND TO SEE IF THE OG LINES HAVE NOT BEEN MODIFIED"
     );
+    
+    // Canonicalize paths for guaranteed absolute paths
+    let repo_path = Path::new(&args.repo_path).canonicalize()
+        .unwrap_or_else(|_| args.repo_path.clone().into());
+    let filename = Path::new(&args.filename).canonicalize()
+        .unwrap_or_else(|_| args.filename.clone().into());
+    
+    println!("Repository: {:?}", repo_path);
+    println!("File: {:?}", filename);
 
-    //TODO make these 2 vars arguments from cli using clap
-    let repo_path = "test/test1";
-    let filename = "src/hello_world.c";
+    let repo_path_str = repo_path.to_string_lossy().to_string();
+    let filename_str = filename.to_string_lossy().to_string();
 
     // Check if file has been modified
-    match check_file_modified(repo_path, filename) {
+    match check_file_modified(&repo_path_str, &filename_str) {
         Ok(false) => {
             println!("\nNo modifications detected.");
             println!("Do nothing and let the model proceed its current task");
@@ -19,7 +44,7 @@ fn main() {
             println!("\nMODIFICATIONS DETECTED!");
 
             // Get diff hunks to show what would be affected
-            match get_diff_hunks_with_ranges(repo_path, filename) {
+            match get_diff_hunks_with_ranges(&repo_path_str, &filename_str) {
                 Ok(hunks) => {
                     println!("\nFound {} hunk(s) in the diff:", hunks.len());
                     for (i, hunk) in hunks.iter().enumerate() {
@@ -52,7 +77,7 @@ fn main() {
                         );
 
                         // Perform selective revert
-                        match selective_revert(repo_path, filename) {
+                        match selective_revert(&repo_path_str, &filename_str) {
                             Ok(count) => {
                                 println!(
                                     "\nSuccessfully reverted {} hunk(s) affecting original lines.",

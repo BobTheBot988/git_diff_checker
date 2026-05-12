@@ -32,7 +32,7 @@
       "selectedType": "openai"
     }
   },
-  "$version": 3,
+  "$version": 4,
   "permissions": {
     "allow": [
       "Bash(grep *)",
@@ -63,7 +63,8 @@
       "Bash(/home/robertodr/gits/git_diff_checker/target/release/git_diff_checker)",
       "Bash(file *)",
       "WebFetch(qwenlm.github.io)",
-      "Bash(../..//target/release/git_diff_checker)"
+      "Bash(../..//target/release/git_diff_checker)",
+      "Bash(xxd *)"
     ]
   },
   "model": {
@@ -77,6 +78,7 @@
   "mcp": {
     "excluded": []
   },
+  "disableAllHooks": true,
   "hooks": {
     "PreToolUse": [
       {
@@ -110,3 +112,4 @@
     ]
   }
 }
+

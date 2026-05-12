@@ -1,10 +1,22 @@
 use git_diff_checker::check_file_modified;
+use std::fs;
+
+/// Clean up any stale git lock file
+fn cleanup_git_lock(repo_path: &str) {
+    let lock_path = std::path::Path::new(repo_path)
+        .join(".git")
+        .join("index.lock");
+    let _ = fs::remove_file(&lock_path);
+}
 
 /// Test that detects modifications when the file is modified
 #[test]
 fn test_detects_modifications() {
     let repo_path = "test/test1";
     let filename = "src/hello_world.c";
+    
+    // Clean up any stale lock file
+    cleanup_git_lock(repo_path);
 
     // Reset the file to original state first to ensure clean test
     std::process::Command::new("git")
@@ -37,13 +49,20 @@ fn test_detects_modifications() {
 fn test_no_modifications_detected() {
     let repo_path = "test/test1";
     let filename = "src/hello_world.c";
+    
+    // Clean up any stale lock file
+    cleanup_git_lock(repo_path);
 
     // Reset the file to original state first to ensure clean test
-    std::process::Command::new("git")
+    let status = std::process::Command::new("git")
         .args(["checkout", "HEAD", "--", filename])
         .current_dir(repo_path)
-        .output()
-        .expect("Failed to reset file");
+        .status()
+        .expect("Failed to run git");
+    
+    if !status.success() {
+        panic!("Git checkout failed: {}", status);
+    }
 
     // First check initial state is unmodified
     let result = check_file_modified(repo_path, filename);

@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::process::Command;
 
 /// Represents a parsed hunk with its line ranges
@@ -95,9 +96,26 @@ pub fn get_diff_hunks_with_ranges(
     repo_path: &str,
     filename: &str,
 ) -> Result<Vec<HunkInfo>, String> {
+    // For git commands, we need a relative path from the repo root
+    // If filename is absolute, strip the repo_path prefix
+    let relative_filename = if Path::new(filename).is_absolute() {
+        // Try to strip repo_path prefix
+        Path::new(filename)
+            .strip_prefix(repo_path)
+            .map_err(|_| {
+                format!(
+                    "Filename {} is not within repo {}",
+                    filename, repo_path
+                )
+            })?
+            .to_path_buf()
+    } else {
+        Path::new(filename).to_path_buf()
+    };
+
     // Get the full diff output
     let output = Command::new("git")
-        .args(["diff", "HEAD", filename])
+        .args(["diff", "HEAD", relative_filename.to_str().unwrap_or("")])
         .current_dir(repo_path)
         .output()
         .map_err(|e| format!("Failed to execute git diff: {}", e))?;
@@ -179,8 +197,25 @@ pub fn get_diff_hunks_with_ranges(
 
 /// Get the original file content from git history
 fn get_original_file_content(repo_path: &str, filename: &str) -> Result<String, String> {
+    // For git commands, we need a relative path from the repo root
+    // If filename is absolute, strip the repo_path prefix
+    let relative_filename = if Path::new(filename).is_absolute() {
+        // Try to strip repo_path prefix
+        Path::new(filename)
+            .strip_prefix(repo_path)
+            .map_err(|_| {
+                format!(
+                    "Filename {} is not within repo {}",
+                    filename, repo_path
+                )
+            })?
+            .to_path_buf()
+    } else {
+        Path::new(filename).to_path_buf()
+    };
+
     let output = Command::new("git")
-        .args(["show", &format!("HEAD:{}", filename)])
+        .args(["show", &format!("HEAD:{}", relative_filename.to_str().unwrap_or(""))])
         .current_dir(repo_path)
         .output()
         .map_err(|e| format!("Failed to execute git show: {}", e))?;
@@ -294,22 +329,22 @@ pub fn selective_revert(repo_path: &str, filename: &str) -> Result<usize, String
         return Ok(0); // No original lines were modified
     }
 
-    // Write patch to temp file
-    let patch_path = std::path::Path::new(".temp_selective_patch");
-    std::fs::write(patch_path, &patch_content)
+    // Write patch to temp file in the repo directory
+    let patch_path = std::path::Path::new(repo_path).join(".temp_selective_patch");
+    std::fs::write(&patch_path, &patch_content)
         .map_err(|e| format!("Failed to write temp patch: {}", e))?;
 
     // Apply the selective patch in reverse
+    // The patch path is relative to repo_path since we're running from there
     let output = Command::new("git")
         .args([
             "apply",
             "-p1",
-            "--directory",
-            repo_path,
             "-R",
             "--ignore-space-change",
-            patch_path.to_str().unwrap(),
+            ".temp_selective_patch",
         ])
+        .current_dir(repo_path)
         .output()
         .map_err(|e| format!("Failed to apply selective patch: {}", e))?;
 
@@ -362,5 +397,23 @@ mod tests {
         assert_eq!(parse_range("+4,4"), Some((4, 4)));
         assert_eq!(parse_range("-1"), Some((1, 1)));
         assert_eq!(parse_range("invalid"), None);
+    }
+
+    #[test]
+    fn test_check_modified_file() {
+        // Test that check_file_modified detects modifications to original lines
+        // This test modifies the file, checks, then restores it
+        use std::fs;
+        let test_file = "test/test1/src/hello_world.c";
+        let original_content = fs::read_to_string(test_file).unwrap();
+        
+        // Make a temporary modification
+        fs::write(test_file, original_content.replace("World", "Universe")).unwrap();
+        
+        let result = check_file_modified("test/test1", "src/hello_world.c");
+        fs::write(test_file, &original_content).unwrap(); // Restore original
+        
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "modifications should be detected");
     }
 }

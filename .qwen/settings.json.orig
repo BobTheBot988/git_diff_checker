@@ -1,27 +1,113 @@
-{{
-      "id": "qwen3-standard",
-      "provider": "openai",
-      "baseUrl": "http://127.0.0.1:8080/v1",
-      "envKey": "LOCAL_API_KEY",
-      "model": "unsloth/Qwen3-Coder-Next-GGUF:Q3_K_XL"
-    },
-  "modelProviders": [
-    {
-      "id": "my-local-llama",
-      "provider": "openai",
-      "baseUrl": "http://127.0.0.1:8080/v1",
-      "envKey": "LOCAL_API_KEY"
-    }
-  ],
-  "model": {
-    "name": "unsloth/Qwen3-Coder-Next-GGUF:Q3_K_XL"
+{
+  "modelProviders": {
+    "openai": [
+      {
+        "id": "qwen3-standard",
+        "baseUrl": "http://127.0.0.1:8080/v1",
+        "envKey": "LOCAL_API_KEY",
+        "model": "unsloth/Qwen3-Coder-Next-GGUF:Q3_K_XL"
+      },
+      {
+        "id": "qwen3-apex",
+        "baseUrl": "http://127.0.0.1:8080/v1",
+        "envKey": "LOCAL_API_KEY",
+        "model": "mudler/Qwen3-Coder-Next-APEX-GGUF"
+      },
+      {
+        "id": "gemma3-e4b-8b",
+        "baseUrl": "http://127.0.0.1:8080/v1",
+        "envKey": "LOCAL_API_KEY",
+        "model": "lmstudio-community/gemma-4-E4B-it-GGUF"
+      },
+      {
+        "id": "gemma3-e2b-5b",
+        "baseUrl": "http://127.0.0.1:8080/v1",
+        "envKey": "LOCAL_API_KEY",
+        "model": "lmstudio-community/gemma-4-E2B-it-GGUF"
+      }
+    ]
   },
   "security": {
     "auth": {
       "selectedType": "openai"
     }
   },
-  "env": {
-    "LOCAL_API_KEY": "sk-no-key-required"
+  "$version": 3,
+  "permissions": {
+    "allow": [
+      "Bash(grep *)",
+      "Bash(find *)",
+      "Bash(make *)",
+      "Bash(ctest *)",
+      "Bash(/caveman *)",
+      "Bash(skill: *)",
+      "Bash(skill *)",
+      "Bash(strings *)",
+      "Bash(cmake *)",
+      "Bash(git show *)",
+      "Bash(diff *)",
+      "Bash(cat *)",
+      "Bash(uv *)",
+      "Bash(mkdir *)",
+      "Bash(npm view *)",
+      "Bash(cargo build)",
+      "Bash(git checkout *)",
+      "Bash(echo *)",
+      "Bash(cargo run)",
+      "Bash(cargo check)",
+      "Bash(cargo test *)",
+      "Bash(ls *)",
+      "Bash(./target/release/git_diff_checker)",
+      "Bash(./test.sh)",
+      "Bash(/home/robertodr/gits/git_diff_checker/hooks/target/release/post_hook)",
+      "Bash(/home/robertodr/gits/git_diff_checker/target/release/git_diff_checker)",
+      "Bash(file *)",
+      "WebFetch(qwenlm.github.io)",
+      "Bash(../..//target/release/git_diff_checker)",
+      "Bash(xxd *)"
+    ]
+  },
+  "model": {
+    "name": "qwen3-apex"
+  },
+  "mcpServers": {
+    "foundryTools": {
+      "command": "/home/softdream/Programming/probe/my-mcp-server/target/release/my-mcp-server"
+    }
+  },
+  "mcp": {
+    "excluded": []
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "",
+        "sequential": false,
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/robertodr/gits/git_diff_checker/hooks/target/release/pre_hook",
+            "name": "src-whitelist-hook",
+            "description": "Enforce src/ directory whitelist for file modifications",
+            "timeout": 30000
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "sequential": false,
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/robertodr/gits/git_diff_checker/hooks/target/release/post_hook",
+            "name": "git-diff-checker-hook",
+            "description": "Check if git_diff_checker detected and reverted unauthorized changes",
+            "timeout": 60000
+          }
+        ]
+      }
+    ]
   }
 }
