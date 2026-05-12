@@ -107,20 +107,20 @@ impl HookHandler for GitDiffPlugin {
                 // Use canonicalize for guaranteed absolute paths
                 let repo_path = Path::new(&repo_path_arg)
                     .canonicalize()
-                    .unwrap_or_else(|_| repo_path_arg.clone().into());
+                    .unwrap_or_else(|_| repo_path_arg.into());
                 let filename = Path::new(&file_path_arg)
                     .canonicalize()
-                    .unwrap_or_else(|_| file_path_arg.clone().into());
+                    .unwrap_or_else(|_| file_path_arg.into());
 
                 (repo_path, filename)
             }
             None => {
                 let repo_path = Path::new("test/test1")
                     .canonicalize()
-                    .unwrap_or_else(|_| "test/test1".to_string().into());
+                    .unwrap_or_else(|_| "test/test1".into());
                 let filename = Path::new("src/hello_world.c")
                     .canonicalize()
-                    .unwrap_or_else(|_| "src/hello_world.c".to_string().into());
+                    .unwrap_or_else(|_| "src/hello_world.c".into());
                 (repo_path, filename)
             }
         };
@@ -154,33 +154,21 @@ impl HookHandler for GitDiffPlugin {
             }
         );
 
-        // Use a decision logic: If modifications were detected but NOT reverted, we might want to block.
-        // If reverted or clean, we allow.
-        let decision = if detected && !reverted {
-            return Err(HookOutput::PostTool(PostToolUseHookOutput {
-                cont: Some(true),
-                stop_reason: Some(reason),
-                suppress_output: None,
-                system_message: None,
-                reason: None,
-                hook_specific_output: None, // You can populate this with a HashMap if needed
-                decision: HookDecision::Deny,
-            })
-            .to_string());
-        } else {
-            HookDecision::Allow
-        };
+        // Deny when modifications to original lines are detected.
+        // The reversion is a cleanup, but the model should still be denied because
+        // it violated the policy by modifying original lines.
+        if detected {
+            return Err(reason);
+        }
 
-        // In your common lib, you might want to add a `make_post_tool_output` similar to the pre_tool one.
-        // For now, we construct the struct directly:
         Ok(HookOutput::PostTool(PostToolUseHookOutput {
             cont: Some(true),
             stop_reason: None,
             suppress_output: None,
             system_message: None,
             reason: Some(reason),
-            hook_specific_output: None, // You can populate this with a HashMap if needed
-            decision,
+            hook_specific_output: None,
+            decision: HookDecision::Allow,
         }))
     }
 }

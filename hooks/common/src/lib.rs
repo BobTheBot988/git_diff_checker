@@ -2,7 +2,13 @@ use enum_as_inner::EnumAsInner;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_inline_default::serde_inline_default;
-use std::{collections::HashMap, io, path::PathBuf, process};
+use std::{
+    collections::HashMap,
+    fs::File,
+    io::{self, Write},
+    path::PathBuf,
+    process,
+};
 use strum::{AsRefStr, EnumDiscriminants};
 use strum_macros::Display;
 
@@ -117,7 +123,7 @@ macro_rules! impl_hook_output_methods {
 
 #[derive(Debug, Display, Serialize, Deserialize, Clone, Copy)]
 #[strum(serialize_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "kebab-case")]
 pub enum PermissionMode {
     Default,
     Plan,
@@ -169,7 +175,7 @@ pub enum HookEventName {
 // 3. Input Models (Incoming Data)
 // ==========================================
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct CommandRequest {
     pub hook_event_name: Option<String>,
@@ -191,12 +197,15 @@ pub struct PreToolUseInput {
     pub tool_use_id: String,
 }
 
+#[serde_inline_default]
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct PostToolUseInput {
+    #[serde_inline_default(PermissionMode::Default)]
     pub permission_mode: PermissionMode,
     pub tool_name: String,
     pub tool_input: HashMap<String, serde_json::Value>,
+    #[serde_inline_default(serde_json::Map::new().into_iter().collect())]
     pub tool_response: HashMap<String, serde_json::Value>,
     pub tool_use_id: String,
 }
@@ -281,6 +290,24 @@ impl PreToolUseHookOutput {
         })
     }
 }
+impl PostToolUseHookOutput {
+    pub fn make_post_tool_output(decision: HookDecision, cont: bool, reason: String) -> HookOutput {
+        let mut map = HashMap::new();
+        map.insert("hookEventName".into(), "postToolUse".into());
+        map.insert("permissionDecision".into(), decision.to_string().into());
+        map.insert("permissionDecisionReason".into(), reason.into());
+
+        HookOutput::PostTool(PostToolUseHookOutput {
+            cont: Some(cont),
+            stop_reason: None,
+            suppress_output: None,
+            system_message: None,
+            reason: None,
+            hook_specific_output: Some(map),
+            decision,
+        })
+    }
+}
 
 #[derive(Debug, Display, Serialize, EnumAsInner, Clone)]
 #[serde(rename_all = "snake_case")]
@@ -342,6 +369,11 @@ impl Hook {
 
 fn recv_hook_input(he: &HookEventName, h: &HookType) -> (HookInput, CommandRequest) {
     eprintln!("DEBUG recv_hook_input: he={:?}", he);
+    let debug_file = match File::create("/tmp/debug.json") {
+        Ok(f) => f,
+        Err(e) => panic!("Error in creating /tmp/debug.json:{}", e),
+    };
+    let mut writer = std::io::BufWriter::new(debug_file);
     match h {
         HookType::Command => {
             let stdin = io::stdin();
@@ -361,7 +393,18 @@ fn recv_hook_input(he: &HookEventName, h: &HookType) -> (HookInput, CommandReque
                         continue;
                     }
                 };
+                let r = match &serde_json::to_string_pretty(&req) {
+                    Ok(a) => a.clone(),
+                    Err(e) => panic!("{}", e),
+                };
 
+                match writer.write_all(&(r.into_bytes())) {
+                    Ok(_) => eprintln!(
+                        "DEBUG recv_hook_input: written to debug_file:{}",
+                        &serde_json::to_string_pretty(&req).unwrap()
+                    ),
+                    Err(e) => panic!("Error writing to debug file {}", e),
+                };
                 match he {
                     HookEventName::PreToolUse => match PreToolUseInput::try_from(req.clone()) {
                         Ok(input) => {

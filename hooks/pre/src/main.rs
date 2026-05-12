@@ -151,7 +151,7 @@ mod tests {
             "/home/robertodr/gits/git_diff_checker/test/test1",
         );
 
-        let result = plugin.execute(&mut hook).unwrap();
+        let result = plugin.execute(&mut hook).expect("Error");
         let output = result.as_pre_tool().unwrap();
 
         assert_eq!(output.decision, HookDecision::Deny);

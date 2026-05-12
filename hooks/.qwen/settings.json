@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo build *)",
+      "Read(//home/robertodr/gits/git_diff_checker/src/**)",
+      "Read(//home/robertodr/gits/git_diff_checker/.qwen/**)"
+    ]
+  },
+  "$version": 4
+}
