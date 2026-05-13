@@ -78,52 +78,51 @@ fn parse_git_diff_checker_output(output: &str) -> (bool, bool) {
 // Plugin Implementation
 // ==========================================
 
+/// Find the git repository root by traversing upward from a file path
+fn find_git_root(start_path: &Path) -> Option<PathBuf> {
+    let mut current = start_path.canonicalize().ok()?;
+    loop {
+        let git_path = current.join(".git");
+        if git_path.exists() {
+            return Some(current);
+        }
+        if current.parent()? == current {
+            return None;
+        }
+        current = current.parent()?.to_path_buf();
+    }
+}
+
 struct GitDiffPlugin;
 
 impl HookHandler for GitDiffPlugin {
-    fn execute(&self, hook: &mut Hook) -> Result<HookOutput, String> {
+    fn execute(&self, hook: &mut Hook) -> Result<HookOutput, HookOutput> {
         let project_root = get_project_root(hook);
 
         // Get the CommandRequest to access tool_input
         let req = hook.4.clone().expect("Error command req");
 
-        // Extract file_path and repo_path from tool_input
-        // tool_input contains: {"file_path": "...", "repo_path": "..."}
-        let (repo_path, filename) = match req.tool_input.as_ref() {
-            Some(tool_input) => {
-                // Get repo_path from tool_input (optional, default to test/test1)
-                let repo_path_arg = tool_input
-                    .get("repo_path")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("test/test1")
-                    .to_string();
-
-                // Get file_path from tool_input
-                let file_path_arg = tool_input
-                    .get("file_path")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("src/hello_world.c");
-
-                // Use canonicalize for guaranteed absolute paths
-                let repo_path = Path::new(&repo_path_arg)
-                    .canonicalize()
-                    .unwrap_or_else(|_| repo_path_arg.into());
-                let filename = Path::new(&file_path_arg)
-                    .canonicalize()
-                    .unwrap_or_else(|_| file_path_arg.into());
-
-                (repo_path, filename)
-            }
-            None => {
-                let repo_path = Path::new("test/test1")
-                    .canonicalize()
-                    .unwrap_or_else(|_| "test/test1".into());
-                let filename = Path::new("src/hello_world.c")
-                    .canonicalize()
-                    .unwrap_or_else(|_| "src/hello_world.c".into());
-                (repo_path, filename)
-            }
+        // Extract file_path from tool_input
+        let file_path_arg = match req.tool_input.as_ref() {
+            Some(tool_input) => tool_input
+                .get("file_path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("src/hello_world.c")
+                .to_string(),
+            None => "src/hello_world.c".to_string(),
         };
+
+        let file_path = Path::new(&file_path_arg);
+
+        // Find the git repository root by traversing upward from file_path
+        let repo_path =
+            find_git_root(file_path).unwrap_or_else(|| Path::new("test/test1").to_path_buf());
+
+        // The filename is the relative path from repo root to the file
+        let filename = file_path
+            .strip_prefix(&repo_path)
+            .unwrap_or(file_path)
+            .to_path_buf();
 
         // Ensure we are actually in a PostToolUse context
         let _input = match hook.0.as_post_tool_use() {
@@ -134,7 +133,16 @@ impl HookHandler for GitDiffPlugin {
         let check_output = match run_git_diff_checker(&project_root, &repo_path, &filename) {
             Ok(out) => out,
             Err(e) => {
-                return Err(format!("Failed git_diff_checker: {}", e));
+                let err_output = PostToolUseHookOutput {
+                    cont: Some(false),
+                    stop_reason: Some(e.clone()),
+                    suppress_output: None,
+                    system_message: None,
+                    reason: Some(e.clone()),
+                    hook_specific_output: None,
+                    decision: HookDecision::Deny,
+                };
+                return Err(HookOutput::PostTool(err_output));
             }
         };
 
@@ -158,7 +166,16 @@ impl HookHandler for GitDiffPlugin {
         // The reversion is a cleanup, but the model should still be denied because
         // it violated the policy by modifying original lines.
         if detected {
-            return Err(reason);
+            let deny_output = PostToolUseHookOutput {
+                cont: Some(false),
+                stop_reason: Some(reason.clone()),
+                suppress_output: None,
+                system_message: Some("You are wrong".to_string()),
+                reason: Some(reason),
+                hook_specific_output: None,
+                decision: HookDecision::Deny,
+            };
+            return Err(HookOutput::PostTool(deny_output));
         }
 
         Ok(HookOutput::PostTool(PostToolUseHookOutput {
