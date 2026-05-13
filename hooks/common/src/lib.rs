@@ -72,8 +72,12 @@ macro_rules! impl_try_from_request {
 macro_rules! impl_hook_output_methods {
     ($struct_name:ident) => {
         impl $struct_name {
+            #[allow(dead_code)]
             pub fn is_blocking_decision(&self) -> bool {
-                matches!(self.decision, HookDecision::Block | HookDecision::Deny)
+                match &self.decision {
+                    Some(HookDecision::Block) | Some(HookDecision::Deny) => true,
+                    _ => false,
+                }
             }
 
             pub fn should_stop_execution(&self) -> bool {
@@ -240,27 +244,44 @@ impl Clone for HookInput {
 #[serde(rename_all = "snake_case")]
 pub struct PreToolUseHookOutput {
     #[serde(rename = "continue")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cont: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub suppress_output: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub system_message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 
     #[serde(rename = "hookSpecificOutput")]
     pub hook_specific_output: Option<HashMap<String, serde_json::Value>>,
-    pub decision: HookDecision,
+    #[serde(skip)]
+    pub decision: Option<HookDecision>,
 }
 
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct PostToolUseHookOutput {
+    #[serde(rename = "continue")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cont: Option<bool>,
+    #[serde(rename = "stopReason")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_reason: Option<String>,
+    #[serde(rename = "suppressOutput")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub suppress_output: Option<bool>,
+    #[serde(rename = "systemMessage")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub system_message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    #[serde(rename = "hookSpecificOutput")]
     pub hook_specific_output: Option<HashMap<String, serde_json::Value>>,
-    pub decision: HookDecision,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decision: Option<HookDecision>,
 }
 impl ToString for PostToolUseHookOutput {
     fn to_string(&self) -> String {
@@ -271,8 +292,98 @@ impl ToString for PostToolUseHookOutput {
     }
 }
 
-impl_hook_output_methods!(PreToolUseHookOutput);
-impl_hook_output_methods!(PostToolUseHookOutput);
+impl PreToolUseHookOutput {
+    #[allow(dead_code)]
+    pub fn is_blocking_decision(&self) -> bool {
+        matches!(
+            self.decision,
+            Some(HookDecision::Block) | Some(HookDecision::Deny)
+        )
+    }
+
+    pub fn should_stop_execution(&self) -> bool {
+        self.cont.is_some_and(|c| !c)
+    }
+
+    pub fn get_effective_reason(&self) -> String {
+        self.stop_reason
+            .as_ref()
+            .or(self.reason.as_ref())
+            .cloned()
+            .unwrap_or_else(|| "No reason provided".to_string())
+    }
+
+    pub fn get_blocking_error(&self) -> (bool, String) {
+        if self.is_blocking_decision() {
+            (true, self.get_effective_reason())
+        } else {
+            (false, "".to_string())
+        }
+    }
+
+    pub fn should_clear_context() -> bool {
+        false
+    }
+
+    pub fn get_additional_context(&self) -> Option<String> {
+        self.hook_specific_output
+            .as_ref()
+            .and_then(|map| map.get("additionalContext"))
+            .map(|val| {
+                let mut context = val.to_string();
+                let relt = Regex::new("<").unwrap();
+                let regt = Regex::new(">").unwrap();
+                context = relt.replace_all(&context, "&lt;").to_string();
+                context = regt.replace_all(&context, "&gt;").to_string();
+                context
+            })
+    }
+}
+
+impl PostToolUseHookOutput {
+    #[allow(dead_code)]
+    pub fn is_blocking_decision(&self) -> bool {
+        matches!(self.decision, Some(HookDecision::Block) | Some(HookDecision::Deny))
+    }
+
+    pub fn should_stop_execution(&self) -> bool {
+        self.cont.is_some_and(|c| !c)
+    }
+
+    pub fn get_effective_reason(&self) -> String {
+        self.stop_reason
+            .as_ref()
+            .or(self.reason.as_ref())
+            .cloned()
+            .unwrap_or_else(|| "No reason provided".to_string())
+    }
+
+    pub fn get_blocking_error(&self) -> (bool, String) {
+        if self.is_blocking_decision() {
+            (true, self.get_effective_reason())
+        } else {
+            (false, "".to_string())
+        }
+    }
+
+    pub fn should_clear_context() -> bool {
+        false
+    }
+
+    pub fn get_additional_context(&self) -> Option<String> {
+        self.hook_specific_output
+            .as_ref()
+            .and_then(|map| map.get("additionalContext"))
+            .map(|val| {
+                let mut context = val.to_string();
+                let relt = Regex::new("<").unwrap();
+                let regt = Regex::new(">").unwrap();
+                context = relt.replace_all(&context, "&lt;").to_string();
+                context = regt.replace_all(&context, "&gt;").to_string();
+                context
+            })
+    }
+}
 
 impl PreToolUseHookOutput {
     pub fn make_pre_tool_output(decision: HookDecision, cont: bool, reason: String) -> HookOutput {
@@ -288,7 +399,7 @@ impl PreToolUseHookOutput {
             system_message: None,
             reason: reason.into(),
             hook_specific_output: Some(map),
-            decision,
+            decision: None,
         })
     }
 }
@@ -296,17 +407,16 @@ impl PostToolUseHookOutput {
     pub fn make_post_tool_output(decision: HookDecision, cont: bool, reason: String) -> HookOutput {
         let mut map = HashMap::new();
         map.insert("hookEventName".into(), "PostToolUse".into());
-        map.insert("permissionDecision".into(), decision.to_string().into());
-        map.insert("permissionDecisionReason".into(), reason.into());
+        map.insert("additionalContext".into(), reason.clone().into());
 
         HookOutput::PostTool(PostToolUseHookOutput {
             cont: Some(cont),
             stop_reason: None,
             suppress_output: None,
             system_message: None,
-            reason: None,
+            reason: Some(reason),
             hook_specific_output: Some(map),
-            decision,
+            decision: Some(decision),
         })
     }
 }
@@ -359,7 +469,7 @@ impl HookEngine {
                             system_message: None,
                             reason: Some(e),
                             hook_specific_output: Some(map),
-                            decision: HookDecision::Deny,
+                            decision: None,
                         };
                         HookOutput::PreTool(output)
                     }
@@ -371,7 +481,7 @@ impl HookEngine {
                             system_message: None,
                             reason: Some(e),
                             hook_specific_output: None,
-                            decision: HookDecision::Block,
+                            decision: Some(HookDecision::Block),
                         };
                         HookOutput::PostTool(output)
                     }
