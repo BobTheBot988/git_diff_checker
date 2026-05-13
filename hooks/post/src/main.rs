@@ -162,21 +162,57 @@ impl HookHandler for GitDiffPlugin {
             }
         );
 
-        // Deny when modifications to original lines are detected.
-        // The reversion is a cleanup, but the model should still be denied because
-        // it violated the policy by modifying original lines.
+        // Build hook_specific_output with updatedToolOutput for the model
+        let mut hook_specific_output = std::collections::HashMap::new();
+        hook_specific_output.insert(
+            "hookEventName".to_string(),
+            serde_json::Value::String("PostToolUse".to_string()),
+        );
+        hook_specific_output.insert(
+            "permissionDecision".to_string(),
+            if detected {
+                serde_json::Value::String("deny".to_string())
+            } else {
+                serde_json::Value::String("allow".to_string())
+            },
+        );
+        hook_specific_output.insert(
+            "permissionDecisionReason".to_string(),
+            serde_json::Value::String(reason.clone()),
+        );
+
         if detected {
+            // Include updatedToolOutput matching the edit tool's output schema
+            let updated_tool_output = serde_json::json!({
+                "message": "Unauthorized modifications detected and reverted.",
+                "replacements": 0,
+                "file_path": filename.to_str().unwrap_or("unknown")
+            });
+            hook_specific_output.insert(
+                "updatedToolOutput".to_string(),
+                updated_tool_output,
+            );
+
             let deny_output = PostToolUseHookOutput {
                 cont: Some(false),
                 stop_reason: Some(reason.clone()),
                 suppress_output: None,
                 system_message: Some("You are wrong".to_string()),
                 reason: Some(reason),
-                hook_specific_output: None,
+                hook_specific_output: Some(hook_specific_output),
                 decision: HookDecision::Deny,
             };
             return Err(HookOutput::PostTool(deny_output));
         }
+
+        hook_specific_output.insert(
+            "updatedToolOutput".to_string(),
+            serde_json::json!({
+                "message": "No unauthorized changes detected.",
+                "replacements": 0,
+                "file_path": filename.to_str().unwrap_or("unknown")
+            }),
+        );
 
         Ok(HookOutput::PostTool(PostToolUseHookOutput {
             cont: Some(true),
@@ -184,7 +220,7 @@ impl HookHandler for GitDiffPlugin {
             suppress_output: None,
             system_message: None,
             reason: Some(reason),
-            hook_specific_output: None,
+            hook_specific_output: Some(hook_specific_output),
             decision: HookDecision::Allow,
         }))
     }
