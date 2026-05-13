@@ -6,7 +6,6 @@
 /// - Allows write/edit operations ONLY on files inside src/
 /// - Denies write/edit operations on files outside src/
 use common::{Hook, HookEngine, HookHandler, HookOutput, PreToolUseHookOutput};
-use std::io;
 use std::path::Path;
 
 fn is_in_src_dir(file_path: &str, project_root: &Path) -> bool {
@@ -40,7 +39,7 @@ fn is_in_src_dir(file_path: &str, project_root: &Path) -> bool {
 pub struct MyPlugin;
 
 impl HookHandler for MyPlugin {
-    fn execute(&self, hook: &mut Hook) -> Result<HookOutput, HookOutput> {
+    fn execute(&self, hook: &mut Hook) -> Result<HookOutput, String> {
         let project_root = hook.4.clone().unwrap().cwd.unwrap();
         let res = hook.0.as_pre_tool_use();
         let hi = match res {
@@ -70,9 +69,9 @@ impl HookHandler for MyPlugin {
 
             if file_path.is_empty() {
                 return Ok(PreToolUseHookOutput::make_pre_tool_output(
-                    common::HookDecision::Block,
-                    false,
-                    format!("No file path provided for tool: {}", tool_name),
+                    common::HookDecision::Deny,
+                    true,
+                    format!("No file path provided for {}", tool_name),
                 ));
             }
 
@@ -85,8 +84,8 @@ impl HookHandler for MyPlugin {
                 ));
             } else {
                 return Ok(PreToolUseHookOutput::make_pre_tool_output(
-                    common::HookDecision::Block,
-                    false,
+                    common::HookDecision::Deny,
+                    true,
                     format!(
                         "Only files inside src/ can be modified. '{}' is outside.",
                         file_path
@@ -104,11 +103,11 @@ impl HookHandler for MyPlugin {
     }
 }
 
-fn main() -> io::Result<()> {
+fn main() {
     let myplugin = MyPlugin;
     let h = Hook::new(common::HookEventName::PreToolUse, common::HookType::Command);
     HookEngine::run_hook(myplugin, h);
-    Ok(())
+    std::process::exit(0);
 }
 
 #[cfg(test)]
@@ -162,7 +161,7 @@ mod tests {
         let result = plugin.execute(&mut hook).expect("Error");
         let output = result.as_pre_tool().unwrap();
 
-        assert_eq!(output.decision, HookDecision::Block);
+        assert_eq!(output.decision, HookDecision::Deny);
         assert_eq!(output.cont, Some(false));
         assert!(
             output.hook_specific_output.as_ref().unwrap()["permissionDecisionReason"]

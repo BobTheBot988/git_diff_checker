@@ -5,7 +5,7 @@ use common::{
     PostToolUseHookOutput,
 };
 use std::path::{Path, PathBuf};
-use std::{io, process};
+use std::process;
 
 // ==========================================
 // Git Diff Checker Logic
@@ -96,7 +96,7 @@ fn find_git_root(start_path: &Path) -> Option<PathBuf> {
 struct GitDiffPlugin;
 
 impl HookHandler for GitDiffPlugin {
-    fn execute(&self, hook: &mut Hook) -> Result<HookOutput, HookOutput> {
+    fn execute(&self, hook: &mut Hook) -> Result<HookOutput, String> {
         let project_root = get_project_root(hook);
 
         // Get the CommandRequest to access tool_input
@@ -133,16 +133,16 @@ impl HookHandler for GitDiffPlugin {
         let check_output = match run_git_diff_checker(&project_root, &repo_path, &filename) {
             Ok(out) => out,
             Err(e) => {
-                let err_output = PostToolUseHookOutput {
+                let error_output = PostToolUseHookOutput {
                     cont: Some(false),
                     stop_reason: Some(e.clone()),
                     suppress_output: None,
                     system_message: None,
                     reason: Some(e.clone()),
                     hook_specific_output: None,
-                    decision: HookDecision::Deny,
+                    decision: HookDecision::Block,
                 };
-                return Err(HookOutput::PostTool(err_output));
+                return Ok(HookOutput::PostTool(error_output));
             }
         };
 
@@ -162,57 +162,35 @@ impl HookHandler for GitDiffPlugin {
             }
         );
 
-        // Build hook_specific_output with updatedToolOutput for the model
-        let mut hook_specific_output = std::collections::HashMap::new();
-        hook_specific_output.insert(
-            "hookEventName".to_string(),
-            serde_json::Value::String("PostToolUse".to_string()),
-        );
-
+        // Block when modifications to original lines are detected.
+        // The reversion is a cleanup, but the model should still be blocked because
+        // it violated the policy by modifying original lines.
         if detected {
-            // Include updatedToolOutput matching the edit tool's output schema
-            let updated_tool_output = serde_json::json!({
-                "content": "Unauthorized modifications detected and reverted.",
-                "file_path": filename.to_str().unwrap_or("unknown"),
-                "changes_applied": false
-            });
-            hook_specific_output.insert("updatedToolOutput".to_string(), updated_tool_output);
-
-            // For PostToolUse, decision is at top level of post_tool
             let block_output = PostToolUseHookOutput {
-                cont: None,
+                cont: Some(false),
                 stop_reason: Some(reason.clone()),
                 suppress_output: None,
                 system_message: Some("You are wrong".to_string()),
                 reason: Some(reason),
-                hook_specific_output: Some(hook_specific_output),
+                hook_specific_output: None,
                 decision: HookDecision::Block,
             };
             return Ok(HookOutput::PostTool(block_output));
         }
 
-        hook_specific_output.insert(
-            "updatedToolOutput".to_string(),
-            serde_json::json!({
-                "content": "No unauthorized changes detected.",
-                "file_path": filename.to_str().unwrap_or("unknown"),
-                "changes_applied": true
-            }),
-        );
-
         Ok(HookOutput::PostTool(PostToolUseHookOutput {
-            cont: None,
+            cont: Some(true),
             stop_reason: None,
             suppress_output: None,
             system_message: None,
             reason: Some(reason),
-            hook_specific_output: Some(hook_specific_output),
+            hook_specific_output: None,
             decision: HookDecision::Allow,
         }))
     }
 }
 
-fn main() -> io::Result<()> {
+fn main() {
     let plugin = GitDiffPlugin;
 
     // Initialize hook (reads from stdin via Hook::new)
@@ -221,5 +199,6 @@ fn main() -> io::Result<()> {
     // Engine handles execution and automatic printing of JSON to stdout
     HookEngine::run_hook(plugin, h);
 
-    Ok(())
+    // Always exit with code 0 - JSON output handles blocking decisions
+    std::process::exit(0);
 }
