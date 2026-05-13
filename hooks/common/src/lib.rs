@@ -391,13 +391,14 @@ impl PreToolUseHookOutput {
         map.insert("hookEventName".into(), "PreToolUse".into());
         map.insert("permissionDecision".into(), decision.to_string().into());
         map.insert("permissionDecisionReason".into(), reason.clone().into());
+        map.insert("additionalContext".into(), reason.clone().into());
 
         HookOutput::PreTool(PreToolUseHookOutput {
             cont: Some(cont),
             stop_reason: None,
             suppress_output: None,
             system_message: None,
-            reason: reason.into(),
+            reason: Some(reason),
             hook_specific_output: Some(map),
             decision: None,
         })
@@ -462,6 +463,7 @@ impl HookEngine {
                         map.insert("hookEventName".into(), "PreToolUse".into());
                         map.insert("permissionDecision".into(), "deny".into());
                         map.insert("permissionDecisionReason".into(), e.clone().into());
+                        map.insert("additionalContext".into(), e.clone().into());
                         let output = PreToolUseHookOutput {
                             cont: Some(false),
                             stop_reason: Some(e.clone()),
