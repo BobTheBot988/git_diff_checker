@@ -168,54 +168,40 @@ impl HookHandler for GitDiffPlugin {
             "hookEventName".to_string(),
             serde_json::Value::String("PostToolUse".to_string()),
         );
-        hook_specific_output.insert(
-            "permissionDecision".to_string(),
-            if detected {
-                serde_json::Value::String("deny".to_string())
-            } else {
-                serde_json::Value::String("allow".to_string())
-            },
-        );
-        hook_specific_output.insert(
-            "permissionDecisionReason".to_string(),
-            serde_json::Value::String(reason.clone()),
-        );
 
         if detected {
             // Include updatedToolOutput matching the edit tool's output schema
             let updated_tool_output = serde_json::json!({
-                "message": "Unauthorized modifications detected and reverted.",
-                "replacements": 0,
-                "file_path": filename.to_str().unwrap_or("unknown")
+                "content": "Unauthorized modifications detected and reverted.",
+                "file_path": filename.to_str().unwrap_or("unknown"),
+                "changes_applied": false
             });
-            hook_specific_output.insert(
-                "updatedToolOutput".to_string(),
-                updated_tool_output,
-            );
+            hook_specific_output.insert("updatedToolOutput".to_string(), updated_tool_output);
 
-            let deny_output = PostToolUseHookOutput {
+            // For PostToolUse, decision is at top level of post_tool
+            let block_output = PostToolUseHookOutput {
                 cont: None,
                 stop_reason: Some(reason.clone()),
                 suppress_output: None,
                 system_message: Some("You are wrong".to_string()),
                 reason: Some(reason),
                 hook_specific_output: Some(hook_specific_output),
-                decision: HookDecision::Deny,
+                decision: HookDecision::Block,
             };
-            return Ok(HookOutput::PostTool(deny_output));
+            return Ok(HookOutput::PostTool(block_output));
         }
 
         hook_specific_output.insert(
             "updatedToolOutput".to_string(),
             serde_json::json!({
-                "message": "No unauthorized changes detected.",
-                "replacements": 0,
-                "file_path": filename.to_str().unwrap_or("unknown")
+                "content": "No unauthorized changes detected.",
+                "file_path": filename.to_str().unwrap_or("unknown"),
+                "changes_applied": true
             }),
         );
 
         Ok(HookOutput::PostTool(PostToolUseHookOutput {
-            cont: Some(true),
+            cont: None,
             stop_reason: None,
             suppress_output: None,
             system_message: None,
