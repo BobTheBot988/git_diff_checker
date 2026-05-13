@@ -194,7 +194,7 @@ impl HookHandler for GitDiffPlugin {
             );
 
             let deny_output = PostToolUseHookOutput {
-                cont: Some(false),
+                cont: None,
                 stop_reason: Some(reason.clone()),
                 suppress_output: None,
                 system_message: Some("You are wrong".to_string()),
@@ -202,7 +202,7 @@ impl HookHandler for GitDiffPlugin {
                 hook_specific_output: Some(hook_specific_output),
                 decision: HookDecision::Deny,
             };
-            return Err(HookOutput::PostTool(deny_output));
+            return Ok(HookOutput::PostTool(deny_output));
         }
 
         hook_specific_output.insert(
