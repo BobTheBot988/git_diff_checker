@@ -133,7 +133,6 @@ pub enum PermissionMode {
 
 #[derive(Debug, Display, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
 pub enum HookType {
     Command,
     Http,
@@ -142,7 +141,6 @@ pub enum HookType {
 
 #[derive(Debug, Display, Deserialize, Serialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
 pub enum HookDecision {
     Ask,
     Block,
@@ -153,7 +151,6 @@ pub enum HookDecision {
 
 #[derive(Debug, Display, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
 pub enum HookEventName {
     PreToolUse,
     PostToolUse,
@@ -218,6 +215,7 @@ impl_try_from_request!(PostToolUseInput, "PostToolUse");
 #[derive(Debug, Deserialize, EnumDiscriminants, EnumAsInner)]
 #[strum_discriminants(derive(AsRefStr))]
 #[serde(rename_all = "snake_case")]
+#[serde(untagged)]
 pub enum HookInput {
     PreToolUse(PreToolUseInput),
     PostToolUse(PostToolUseInput),
@@ -238,6 +236,7 @@ impl Clone for HookInput {
 
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "snake_case")]
+#[serde_inline_default]
 pub struct PreToolUseHookOutput {
     #[serde(rename = "continue")]
     pub cont: Option<bool>,
@@ -246,18 +245,22 @@ pub struct PreToolUseHookOutput {
     pub system_message: Option<String>,
     pub reason: Option<String>,
     pub hook_specific_output: Option<HashMap<String, serde_json::Value>>,
+    #[serde_inline_default(HookDecision::Deny)]
     pub decision: HookDecision,
 }
 
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "snake_case")]
+#[serde_inline_default]
 pub struct PostToolUseHookOutput {
+    #[serde(rename = "continue")]
     pub cont: Option<bool>,
     pub stop_reason: Option<String>,
     pub suppress_output: Option<bool>,
     pub system_message: Option<String>,
     pub reason: Option<String>,
     pub hook_specific_output: Option<HashMap<String, serde_json::Value>>,
+    #[serde_inline_default(HookDecision::Deny)]
     pub decision: HookDecision,
 }
 impl ToString for PostToolUseHookOutput {
@@ -274,9 +277,16 @@ impl_hook_output_methods!(PostToolUseHookOutput);
 
 impl PreToolUseHookOutput {
     pub fn make_pre_tool_output(decision: HookDecision, cont: bool, reason: String) -> HookOutput {
+        // PreToolUse uses lowercase strings for permissionDecision: deny/allow/ask/defer
+        let permission_decision_str = match decision {
+            HookDecision::Deny | HookDecision::Block => "deny",
+            HookDecision::Allow | HookDecision::Approve => "allow",
+            HookDecision::Ask => "ask",
+        };
+
         let mut map = HashMap::new();
         map.insert("hookEventName".into(), "preToolUse".into());
-        map.insert("permissionDecision".into(), decision.to_string().into());
+        map.insert("permissionDecision".into(), permission_decision_str.to_string().into());
         map.insert("permissionDecisionReason".into(), reason.into());
 
         HookOutput::PreTool(PreToolUseHookOutput {
@@ -330,7 +340,7 @@ pub struct Hook(
 );
 
 pub trait HookHandler {
-    fn execute(&self, hook: &mut Hook) -> Result<HookOutput, String>;
+    fn execute(&self, hook: &mut Hook) -> Result<HookOutput, HookOutput>;
 }
 
 pub struct HookEngine;
@@ -343,7 +353,8 @@ impl HookEngine {
                 hook.send_hook_output();
             }
             Err(e) => {
-                eprintln!("Hook execution failed:{}", e);
+                hook.1 = Some(e);
+                hook.send_hook_err();
                 process::exit(2);
             }
         }
@@ -356,12 +367,30 @@ impl Hook {
         Self(input_data, None, hook_event_name, hook_type, Some(c))
     }
     pub fn log(&self, message: &str) {
-        eprintln!("[Hook Log]: {}", message);
+        match self.3 {
+            HookType::Command => {
+                unimplemented!()
+            }
+            _ => eprintln!("[Hook Log]: {}", message),
+        }
     }
     pub fn send_hook_output(&self) {
         let output_json = serde_json::to_string_pretty(&self.1).unwrap();
         match self.3 {
-            HookType::Command => println!("{}", output_json),
+            HookType::Command => {
+                std::io::stdout().flush().unwrap();
+                println!("{}", output_json)
+            }
+            _ => todo!(),
+        }
+    }
+    pub fn send_hook_err(&self) {
+        let output_json = serde_json::to_string_pretty(&self.1).unwrap();
+        match self.3 {
+            HookType::Command => {
+                std::io::stderr().flush().unwrap();
+                eprintln!("{}", output_json)
+            }
             _ => todo!(),
         }
     }

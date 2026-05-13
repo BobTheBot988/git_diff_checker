@@ -40,7 +40,7 @@ fn is_in_src_dir(file_path: &str, project_root: &Path) -> bool {
 pub struct MyPlugin;
 
 impl HookHandler for MyPlugin {
-    fn execute(&self, hook: &mut Hook) -> Result<HookOutput, String> {
+    fn execute(&self, hook: &mut Hook) -> Result<HookOutput, HookOutput> {
         let project_root = hook.4.clone().unwrap().cwd.unwrap();
         let res = hook.0.as_pre_tool_use();
         let hi = match res {
@@ -69,7 +69,11 @@ impl HookHandler for MyPlugin {
                 .unwrap_or("");
 
             if file_path.is_empty() {
-                return Err(format!("No file path provided for {}", tool_name));
+                return Ok(PreToolUseHookOutput::make_pre_tool_output(
+                    common::HookDecision::Block,
+                    false,
+                    format!("No file path provided for tool: {}", tool_name),
+                ));
             }
 
             // Logic check: only allow if in src/
@@ -80,9 +84,13 @@ impl HookHandler for MyPlugin {
                     format!("File '{}' is inside src/ whitelist", file_path),
                 ));
             } else {
-                return Err(format!(
-                    "Only files inside src/ can be modified. '{}' is outside.",
-                    file_path
+                return Ok(PreToolUseHookOutput::make_pre_tool_output(
+                    common::HookDecision::Block,
+                    false,
+                    format!(
+                        "Only files inside src/ can be modified. '{}' is outside.",
+                        file_path
+                    ),
                 ));
             }
         }
@@ -154,7 +162,7 @@ mod tests {
         let result = plugin.execute(&mut hook).expect("Error");
         let output = result.as_pre_tool().unwrap();
 
-        assert_eq!(output.decision, HookDecision::Deny);
+        assert_eq!(output.decision, HookDecision::Block);
         assert_eq!(output.cont, Some(false));
         assert!(
             output.hook_specific_output.as_ref().unwrap()["permissionDecisionReason"]
