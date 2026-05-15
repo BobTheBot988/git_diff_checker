@@ -667,4 +667,29 @@ mod tests {
         let paths = extract_paths_from_bash_command("echo 'unclosed");
         assert!(paths.is_empty());
     }
+
+    #[test]
+    fn test_bash_write_absolute_path_outside_repo() {
+        let plugin = MyPlugin;
+        // Write to /tmp/ which is outside the project
+        let mut hook = create_test_hook_with_command(
+            "Bash",
+            "echo 'hello' > /tmp/test.txt",
+            "/home/robertodr/gits/git_diff_checker/test/test1",
+        );
+
+        let result = plugin.execute(&mut hook).unwrap();
+        let output = result.as_pre_tool().unwrap();
+
+        assert_eq!(
+            output
+                .hook_specific_output
+                .as_ref()
+                .unwrap()["permissionDecision"]
+                .as_str()
+                .unwrap(),
+            "deny",
+            "Bash write to absolute /tmp/ path should be denied"
+        );
+    }
 }
