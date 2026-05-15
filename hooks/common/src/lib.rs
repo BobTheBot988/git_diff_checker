@@ -256,8 +256,10 @@ pub struct PreToolUseHookOutput {
     pub reason: Option<String>,
 
     #[serde(rename = "hookSpecificOutput")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub hook_specific_output: Option<HashMap<String, serde_json::Value>>,
     #[serde(skip)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub decision: Option<HookDecision>,
 }
 
@@ -279,6 +281,7 @@ pub struct PostToolUseHookOutput {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
     #[serde(rename = "hookSpecificOutput")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub hook_specific_output: Option<HashMap<String, serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub decision: Option<HookDecision>,
@@ -343,7 +346,10 @@ impl PreToolUseHookOutput {
 impl PostToolUseHookOutput {
     #[allow(dead_code)]
     pub fn is_blocking_decision(&self) -> bool {
-        matches!(self.decision, Some(HookDecision::Block) | Some(HookDecision::Deny))
+        matches!(
+            self.decision,
+            Some(HookDecision::Block) | Some(HookDecision::Deny)
+        )
     }
 
     pub fn should_stop_execution(&self) -> bool {

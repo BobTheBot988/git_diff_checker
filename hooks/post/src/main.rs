@@ -103,20 +103,28 @@ impl HookHandler for GitDiffPlugin {
         let req = hook.4.clone().expect("Error command req");
 
         // Extract file_path from tool_input
-        let file_path_arg = match req.tool_input.as_ref() {
-            Some(tool_input) => tool_input
-                .get("file_path")
-                .and_then(|v| v.as_str())
-                .unwrap_or("src/hello_world.c")
-                .to_string(),
-            None => "src/hello_world.c".to_string(),
+        let tool_input = match req.tool_input.as_ref() {
+            Some(tool_input) => tool_input,
+            None => panic!("Suca"),
         };
+        let file_path_arg = tool_input
+            .get("file_path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("*")
+            .to_string();
+
+        let repo_path_arg = tool_input
+            .get("cwd")
+            .and_then(|v| v.as_str())
+            .unwrap()
+            .to_string();
 
         let file_path = Path::new(&file_path_arg);
 
         // Find the git repository root by traversing upward from file_path
-        let repo_path =
-            find_git_root(file_path).unwrap_or_else(|| Path::new("test/test1").to_path_buf());
+        // let repo_path =
+        //     find_git_root(file_path).unwrap_or_else(|| Path::new("test/test1").to_path_buf());
+        let repo_path = Path::new(&repo_path_arg);
 
         // The filename is the relative path from repo root to the file
         let filename = file_path
@@ -140,7 +148,7 @@ impl HookHandler for GitDiffPlugin {
                     system_message: None,
                     reason: Some(e.clone()),
                     hook_specific_output: None,
-                    decision: HookDecision::Block,
+                    decision: Some(HookDecision::Block),
                 };
                 return Ok(HookOutput::PostTool(error_output));
             }
@@ -173,7 +181,7 @@ impl HookHandler for GitDiffPlugin {
                 system_message: Some("You are wrong".to_string()),
                 reason: Some(reason),
                 hook_specific_output: None,
-                decision: HookDecision::Block,
+                decision: Some(HookDecision::Block),
             };
             return Ok(HookOutput::PostTool(block_output));
         }
@@ -185,7 +193,7 @@ impl HookHandler for GitDiffPlugin {
             system_message: None,
             reason: Some(reason),
             hook_specific_output: None,
-            decision: HookDecision::Allow,
+            decision: Some(HookDecision::Approve),
         }))
     }
 }

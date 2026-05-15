@@ -1,3 +1,4 @@
+use git2::Repository;
 use std::path::Path;
 use std::process::Command;
 
@@ -96,16 +97,32 @@ pub fn get_diff_hunks_with_ranges(
     repo_path: &str,
     filename: &str,
 ) -> Result<Vec<HunkInfo>, String> {
-    // For git commands, we need a relative path from the repo root
-    // If filename is absolute, strip the repo_path prefix
+    // Open the repository
+    let repo = Repository::discover(repo_path)
+        .map_err(|e| format!("Failed to discover repository: {}", e))?;
+
+    // Get the working directory (actual repo root)
+    let repo_root = repo
+        .workdir()
+        .ok_or("Repository has no workdir (bare repo?")?;
+
+    // Get HEAD tree
+    let head = repo
+        .head()
+        .map_err(|e| format!("Failed to get HEAD: {}", e))?;
+    let _tree = head
+        .peel_to_tree()
+        .map_err(|e| format!("Failed to get tree: {}", e))?;
+
+    // Determine the relative path from repo root to filename
     let relative_filename = if Path::new(filename).is_absolute() {
-        // Try to strip repo_path prefix
         Path::new(filename)
-            .strip_prefix(repo_path)
+            .strip_prefix(repo_root)
             .map_err(|_| {
                 format!(
                     "Filename {} is not within repo {}",
-                    filename, repo_path
+                    filename,
+                    repo_root.to_string_lossy()
                 )
             })?
             .to_path_buf()
@@ -115,8 +132,8 @@ pub fn get_diff_hunks_with_ranges(
 
     // Get the full diff output
     let output = Command::new("git")
-        .args(["diff", "HEAD", relative_filename.to_str().unwrap_or("")])
-        .current_dir(repo_path)
+        .args(["diff", "HEAD", &relative_filename.to_string_lossy()])
+        .current_dir(repo_root)
         .output()
         .map_err(|e| format!("Failed to execute git diff: {}", e))?;
 
@@ -197,35 +214,77 @@ pub fn get_diff_hunks_with_ranges(
 
 /// Get the original file content from git history
 fn get_original_file_content(repo_path: &str, filename: &str) -> Result<String, String> {
-    // For git commands, we need a relative path from the repo root
-    // If filename is absolute, strip the repo_path prefix
+    // Discover the repository root from the given path
+    let repo = Repository::discover(repo_path)
+        .map_err(|e| format!("Failed to discover repository: {}", e))?;
+
+    // Get the working directory (actual repo root), not the .git path
+    let repo_root = repo
+        .workdir()
+        .ok_or("Repository has no workdir (bare repo?")?;
+
+    // Parse the HEAD reference
+    let head = repo
+        .head()
+        .map_err(|e| format!("Failed to get HEAD: {}", e))?;
+
+    // Get the tree entry for the file
+    let tree = head
+        .peel_to_tree()
+        .map_err(|e| format!("Failed to get tree: {}", e))?;
+
+    // Determine the relative path from repo root to the given repo_path
+    // This is needed when repo_path is a subdirectory of the actual repo root
+    // Need to make both paths absolute to compare them correctly
+    let repo_path_abs = Path::new(repo_path)
+        .canonicalize()
+        .unwrap_or_else(|_| Path::new(repo_path).to_path_buf());
+    let repo_root_abs = repo_root
+        .canonicalize()
+        .unwrap_or_else(|_| repo_root.to_path_buf());
+
+    let path_from_root = repo_path_abs
+        .strip_prefix(&repo_root_abs)
+        .ok()
+        .map(|p| p.to_path_buf());
+
+    // Construct the full path relative to repo root
     let relative_filename = if Path::new(filename).is_absolute() {
-        // Try to strip repo_path prefix
+        // For absolute filenames, strip the repo_root prefix
         Path::new(filename)
-            .strip_prefix(repo_path)
+            .strip_prefix(&repo_root_abs)
             .map_err(|_| {
                 format!(
                     "Filename {} is not within repo {}",
-                    filename, repo_path
+                    filename,
+                    repo_root.to_string_lossy()
                 )
             })?
             .to_path_buf()
+    } else if let Some(prefix) = &path_from_root {
+        // When repo_path is a subdirectory, prepend that path to filename
+        prefix.join(filename)
     } else {
         Path::new(filename).to_path_buf()
     };
 
-    let output = Command::new("git")
-        .args(["show", &format!("HEAD:{}", relative_filename.to_str().unwrap_or(""))])
-        .current_dir(repo_path)
-        .output()
-        .map_err(|e| format!("Failed to execute git show: {}", e))?;
+    // Get the blob for the file
+    let tree_entry = tree
+        .get_path(relative_filename.as_path())
+        .map_err(|e| format!("Failed to get file from tree: {}", e))?;
 
-    String::from_utf8(output.stdout)
-        .map_err(|e| format!("Failed to convert output to UTF-8: {}", e))
+    let blob = tree_entry
+        .to_object(&repo)
+        .map_err(|e| format!("Failed to get blob: {:?}", e))?
+        .into_blob()
+        .map_err(|e| format!("Failed to convert to blob: {:?}", e))?;
+
+    String::from_utf8(blob.content().to_vec())
+        .map_err(|e| format!("Failed to convert content to UTF-8: {}", e))
 }
 
 /// Check if a hunk actually modifies original line content (not just adds at end or whitespace changes)
-/// 
+///
 /// Returns true only if:
 /// - Original lines are deleted (not just replaced)
 /// - Original line content actually changes (not just whitespace/indentation)
@@ -329,13 +388,21 @@ pub fn selective_revert(repo_path: &str, filename: &str) -> Result<usize, String
         return Ok(0); // No original lines were modified
     }
 
+    // Open the repository and get repo root
+    let repo = Repository::discover(repo_path)
+        .map_err(|e| format!("Failed to discover repository: {}", e))?;
+    let repo_root = repo
+        .workdir()
+        .ok_or("Repository has no workdir")?;
+
     // Write patch to temp file in the repo directory
     let patch_path = std::path::Path::new(repo_path).join(".temp_selective_patch");
     std::fs::write(&patch_path, &patch_content)
         .map_err(|e| format!("Failed to write temp patch: {}", e))?;
 
-    // Apply the selective patch in reverse
-    // The patch path is relative to repo_path since we're running from there
+    // Apply the selective patch in reverse using git apply
+    // git2 doesn't have a direct equivalent for -R (reverse) + --ignore-space-change
+    // So we use git CLI for the actual patch application
     let output = Command::new("git")
         .args([
             "apply",
@@ -344,7 +411,7 @@ pub fn selective_revert(repo_path: &str, filename: &str) -> Result<usize, String
             "--ignore-space-change",
             ".temp_selective_patch",
         ])
-        .current_dir(repo_path)
+        .current_dir(&repo_root)
         .output()
         .map_err(|e| format!("Failed to apply selective patch: {}", e))?;
 
@@ -406,13 +473,13 @@ mod tests {
         use std::fs;
         let test_file = "test/test1/src/hello_world.c";
         let original_content = fs::read_to_string(test_file).unwrap();
-        
+
         // Make a temporary modification
         fs::write(test_file, original_content.replace("World", "Universe")).unwrap();
-        
+
         let result = check_file_modified("test/test1", "src/hello_world.c");
         fs::write(test_file, &original_content).unwrap(); // Restore original
-        
+
         assert!(result.is_ok());
         assert!(result.unwrap(), "modifications should be detected");
     }

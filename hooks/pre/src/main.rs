@@ -59,7 +59,7 @@ impl HookHandler for MyPlugin {
             ));
         }
 
-        let write_tools = ["write_file", "edit"];
+        let write_tools = ["Write", "Edit"];
         if write_tools.contains(&tool_name) {
             let file_path = hi
                 .tool_input
