@@ -45,8 +45,10 @@ cargo clippy --manifest-path hooks/Cargo.toml
   - `check_file_modified()`: checks if original content was modified
   - `get_diff_hunks_with_ranges()`: parses `git diff HEAD` output into hunks
   - `selective_revert()`: builds a patch of only original-line-affecting hunks, applies in reverse via `git apply -R`
+  - `get_all_modified_files()`: lists all files modified since HEAD via `git diff --name-only HEAD`
+  - `selective_revert_all()`: batch revert across all modified files, continues on per-file errors
   - Internal helpers: `parse_hunk_header`, `hunk_affects_original_content`, `build_selective_patch`
-- **`src/main.rs`** — CLI binary using `clap::Parser`. Arguments: `--repo-path` (default: `test/test1`), `--filename` (default: `src/hello_world.c`)
+- **`src/main.rs`** — CLI binary using `clap::Parser`. Arguments: `--repo-path` (default: `test/test1`), `--filename` (default: `src/hello_world.c`), `--all` (check all modified files)
 - **`tests/integration_test.rs`** — Integration tests exercising `check_file_modified` against the `test/test1` fixture
 
 ### Hooks Workspace (`hooks/`)
@@ -61,9 +63,11 @@ A separate Cargo workspace with three crates:
   - Writes debug info to `/tmp/debug.json`
 
 - **`hooks/pre/`** — PreToolUse hook binary:
-  - Enforces `src/` directory whitelist for Write/Edit operations
+  - Enforces directory whitelist for Write/Edit operations (default: `src/`, configurable via `HOOK_ALLOWED_DIRS` env var)
+  - Parses Bash commands to detect file write operations (`sed -i`, `>`, `>>`, `tee`, `cp`, `mv`, `dd of=`) and checks against whitelist
+  - Validates paths with `shell-sanitize-rules` crate (blocks path traversal, control chars)
   - Allows read operations anywhere
-  - Denies writes outside `src/` with descriptive reason
+  - Denies writes outside whitelisted dirs with descriptive reason
 
 - **`hooks/post/`** — PostToolUse hook binary:
   - Runs `git_diff_checker` as a subprocess after every tool call
@@ -85,11 +89,12 @@ Shelling out to `git` CLI for diff/apply is intentional — `git2` lacks equival
 ### Data Flow
 
 ```
-Agent modifies file
-  → PreToolUse hook (src/ whitelist check)
+Agent modifies file (via Write/Edit or Bash)
+  → PreToolUse hook (directory whitelist check + Bash parsing)
     → [if denied] Agent blocked
     → [if allowed] Agent writes file
-  → PostToolUse hook (runs git_diff_checker)
+  → PostToolUse hook (runs git_diff_checker --all)
+    → Checks ALL modified files in repo (catches Bash circumvention)
     → [if original lines modified] Selective revert + Block agent
     → [if only new lines] Allow agent to continue
 ```

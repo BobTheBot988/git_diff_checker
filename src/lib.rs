@@ -1,5 +1,5 @@
 use git2::Repository;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Represents a parsed hunk with its line ranges
@@ -10,6 +10,18 @@ pub struct HunkInfo {
     pub original_count: usize, // Number of lines in original file
     pub new_start: usize,      // Starting line number in new file
     pub new_count: usize,      // Number of lines in new file
+}
+
+/// Discover the git repository root from a given path
+pub fn get_git_root(repo_path: &str) -> Result<PathBuf, String> {
+    let repo = Repository::discover(repo_path)
+        .map_err(|e| format!("Failed to discover repository: {}", e))?;
+
+    let repo_root = repo
+        .workdir()
+        .ok_or("Repository has no workdir (bare repo?")?;
+
+    Ok(repo_root.to_path_buf())
 }
 
 /// Check if the file in the test repository has been modified since the git commit
@@ -430,6 +442,65 @@ pub fn selective_revert(repo_path: &str, filename: &str) -> Result<usize, String
         .count();
 
     Ok(reverted_count)
+}
+
+/// Get a list of all files modified since HEAD in the repository
+///
+/// Runs `git diff --name-only HEAD` and returns relative paths.
+pub fn get_all_modified_files(repo_path: &str) -> Result<Vec<String>, String> {
+    let repo_root = get_git_root(repo_path)?;
+
+    let output = match Command::new("git")
+        .args(["diff", "--name-only", "HEAD"])
+        .current_dir(repo_root)
+        .output()
+    {
+        Ok(o) => o,
+        Err(e) => return Err(format!("Failed to execute git diff --name-only: {}", e)),
+    };
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("git diff --name-only failed: {}", stderr));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut files: Vec<String> = Vec::new();
+
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if !trimmed.is_empty() {
+            files.push(trimmed.to_string());
+        }
+    }
+
+    Ok(files)
+}
+
+/// Selectively revert original-line modifications across all modified files
+///
+/// Iterates over every file modified since HEAD. For each file, reverts only
+/// the hunks that affect original committed lines, preserving any new lines
+/// added by the agent. Continues on per-file errors.
+///
+/// Returns a vector of (filename, reverted_hunks, status) tuples.
+pub fn selective_revert_all(repo_path: &str) -> Result<Vec<(String, usize, String)>, String> {
+    let files = get_all_modified_files(repo_path)?;
+    let mut results: Vec<(String, usize, String)> = Vec::new();
+
+    for file in &files {
+        let result = selective_revert(repo_path, file);
+        match result {
+            Ok(count) => {
+                results.push((file.clone(), count, "ok".to_string()));
+            }
+            Err(e) => {
+                results.push((file.clone(), 0, e));
+            }
+        }
+    }
+
+    Ok(results)
 }
 
 #[cfg(test)]

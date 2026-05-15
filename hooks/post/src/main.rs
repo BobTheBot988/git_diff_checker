@@ -1,5 +1,10 @@
 #!/usr/bin/env -S cargo -E run
 /// Qwen Code PostToolUse Hook: Check if git_diff_checker detected and reverted changes.
+///
+/// This hook runs `git_diff_checker --all` to check ALL modified files in the
+/// repository for unauthorized modifications to original committed lines.
+/// This catches agents that try to circumvent the pre-tool-use whitelist by
+/// editing files via Bash commands.
 use common::{
     Hook, HookDecision, HookEngine, HookEventName, HookHandler, HookOutput, HookType,
     PostToolUseHookOutput,
@@ -19,11 +24,24 @@ fn get_project_root(hook: &Hook) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-fn run_git_diff_checker(
-    project_root: &Path,
-    repo_path: &Path,
-    filename: &Path,
-) -> Result<String, String> {
+/// Find the git repository root by traversing upward from a start path
+fn find_git_root(start_path: &Path) -> Option<PathBuf> {
+    let mut current = start_path.canonicalize().ok()?;
+    loop {
+        let git_path = current.join(".git");
+        if git_path.exists() {
+            return Some(current);
+        }
+        // Check parent, but stop at filesystem root
+        let next = current.parent()?;
+        if next == current {
+            return None;
+        }
+        current = next.to_path_buf();
+    }
+}
+
+fn run_git_diff_checker_all(project_root: &Path, git_root: &Path) -> Result<String, String> {
     let binary_path = project_root
         .join("target")
         .join("release")
@@ -34,10 +52,9 @@ fn run_git_diff_checker(
         process::Command::new(binary_path)
             .current_dir(project_root)
             .args([
+                "--all",
                 "-r",
-                repo_path.to_str().unwrap(),
-                "-f",
-                filename.to_str().unwrap(),
+                &git_root.to_string_lossy(),
             ])
             .output()
     } else {
@@ -46,10 +63,9 @@ fn run_git_diff_checker(
                 "run",
                 "--release",
                 "--",
+                "--all",
                 "-r",
-                repo_path.to_str().unwrap(),
-                "-f",
-                filename.to_str().unwrap(),
+                &git_root.to_string_lossy(),
             ])
             .current_dir(project_root)
             .output()
@@ -64,12 +80,9 @@ fn run_git_diff_checker(
 }
 
 fn parse_git_diff_checker_output(output: &str) -> (bool, bool) {
-    let modification_detected = output.contains("MODIFICATIONS DETECTED")
-        || output.contains("Found")
-        || output.contains("hunk(s) in the diff");
+    let modification_detected = output.contains("MODIFICATIONS DETECTED");
 
-    let reversion_performed =
-        output.contains("Successfully reverted") && output.contains("hunk(s)");
+    let reversion_performed = output.contains("Successfully reverted") && output.contains("hunk(s)");
 
     (modification_detected, reversion_performed)
 }
@@ -78,81 +91,43 @@ fn parse_git_diff_checker_output(output: &str) -> (bool, bool) {
 // Plugin Implementation
 // ==========================================
 
-/// Find the git repository root by traversing upward from a file path
-fn find_git_root(start_path: &Path) -> Option<PathBuf> {
-    let mut current = start_path.canonicalize().ok()?;
-    loop {
-        let git_path = current.join(".git");
-        if git_path.exists() {
-            return Some(current);
-        }
-        if current.parent()? == current {
-            return None;
-        }
-        current = current.parent()?.to_path_buf();
-    }
-}
-
 struct GitDiffPlugin;
 
 impl HookHandler for GitDiffPlugin {
     fn execute(&self, hook: &mut Hook) -> Result<HookOutput, String> {
         let project_root = get_project_root(hook);
 
-        // Get the CommandRequest to access tool_input
-        let req = hook.4.clone().expect("Error command req");
-
-        // Extract file_path from tool_input
-        let tool_input = match req.tool_input.as_ref() {
-            Some(tool_input) => tool_input,
-            None => panic!("Suca"),
+        // Find the git repository root by traversing upward from project_root
+        let git_root = match find_git_root(&project_root) {
+            Some(root) => root,
+            None => {
+                // Fall back to project_root if no git root found
+                project_root.clone()
+            }
         };
-        let file_path_arg = tool_input
-            .get("file_path")
-            .and_then(|v| v.as_str())
-            .unwrap_or("*")
-            .to_string();
-
-        let repo_path_arg = tool_input
-            .get("cwd")
-            .and_then(|v| v.as_str())
-            .unwrap()
-            .to_string();
-
-        let file_path = Path::new(&file_path_arg);
-
-        // Find the git repository root by traversing upward from file_path
-        // let repo_path =
-        //     find_git_root(file_path).unwrap_or_else(|| Path::new("test/test1").to_path_buf());
-        let repo_path = Path::new(&repo_path_arg);
-
-        // The filename is the relative path from repo root to the file
-        let filename = file_path
-            .strip_prefix(&repo_path)
-            .unwrap_or(file_path)
-            .to_path_buf();
 
         // Ensure we are actually in a PostToolUse context
         let _input = match hook.0.as_post_tool_use() {
             Some(i) => i,
-            None => panic!("as_post_tool_use failed"), // Or handle as unexpected event
+            None => panic!("as_post_tool_use failed"),
         };
 
-        let check_output = match run_git_diff_checker(&project_root, &repo_path, &filename) {
-            Ok(out) => out,
-            Err(e) => {
-                let error_output = PostToolUseHookOutput {
-                    cont: Some(false),
-                    stop_reason: Some(e.clone()),
-                    suppress_output: None,
-                    system_message: None,
-                    reason: Some(e.clone()),
-                    hook_specific_output: None,
-                    decision: Some(HookDecision::Block),
-                };
-                return Ok(HookOutput::PostTool(error_output));
-            }
-        };
+        let check_output =
+            match run_git_diff_checker_all(&project_root, &git_root) {
+                Ok(out) => out,
+                Err(e) => {
+                    let error_output = PostToolUseHookOutput {
+                        cont: Some(false),
+                        stop_reason: Some(e.clone()),
+                        suppress_output: None,
+                        system_message: None,
+                        reason: Some(e.clone()),
+                        hook_specific_output: None,
+                        decision: Some(HookDecision::Block),
+                    };
+                    return Ok(HookOutput::PostTool(error_output));
+                }
+            };
 
         let (detected, reverted) = parse_git_diff_checker_output(&check_output);
 
@@ -170,9 +145,7 @@ impl HookHandler for GitDiffPlugin {
             }
         );
 
-        // Block when modifications to original lines are detected.
-        // The reversion is a cleanup, but the model should still be blocked because
-        // it violated the policy by modifying original lines.
+        // Block when modifications to original lines are detected
         if detected {
             let block_output = PostToolUseHookOutput {
                 cont: Some(false),

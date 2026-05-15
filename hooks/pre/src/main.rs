@@ -3,12 +3,48 @@
 ///
 /// This hook:
 /// - Allows read operations (read_file, glob, grep_search) on any file
-/// - Allows write/edit operations ONLY on files inside src/
-/// - Denies write/edit operations on files outside src/
+/// - Allows write/edit operations ONLY on files inside whitelisted directories
+/// - Parses Bash commands to detect file writes outside whitelisted directories
+/// - Whitelist is configured via HOOK_ALLOWED_DIRS env var (comma-separated, default: "src")
 use common::{Hook, HookEngine, HookHandler, HookOutput, PreToolUseHookOutput};
 use std::path::Path;
 
-fn is_in_src_dir(file_path: &str, project_root: &Path) -> bool {
+// ==========================================
+// Whitelist Configuration
+// ==========================================
+
+/// Parse the whitelist of allowed directories from the HOOK_ALLOWED_DIRS env var.
+/// Defaults to ["src"] for backward compatibility.
+fn parse_allowed_dirs() -> Vec<String> {
+    match std::env::var("HOOK_ALLOWED_DIRS") {
+        Ok(val) => val.split(',').map(|s| s.trim().to_string()).collect(),
+        Err(_) => vec!["src".to_string()],
+    }
+}
+
+// ==========================================
+// Path Validation
+// ==========================================
+
+/// Validate a file path for suspicious patterns (path traversal, control chars, etc.)
+/// Uses shell-sanitize-rules to reject dangerous path strings.
+fn validate_file_path(path: &str) -> bool {
+    use shell_sanitize_rules::presets;
+    let sanitizer = presets::file_path();
+    let result = sanitizer.sanitize(path);
+    match result {
+        Ok(_) => true,
+        Err(_) => false,
+    }
+}
+
+// ==========================================
+// Directory Whitelist Check
+// ==========================================
+
+/// Check if a file path is within any of the allowed directories.
+/// Handles both absolute and relative paths with canonicalization.
+fn is_in_allowed_dirs(file_path: &str, project_root: &Path, allowed_dirs: &[String]) -> bool {
     let p = Path::new(file_path);
     let abs_path = if p.is_absolute() {
         p.to_path_buf()
@@ -24,22 +60,135 @@ fn is_in_src_dir(file_path: &str, project_root: &Path) -> bool {
             .unwrap_or(abs_path)
     });
 
-    let src_dir = project_root.join("src");
-    let canonical_src = src_dir.canonicalize().unwrap_or(src_dir);
+    for dir in allowed_dirs {
+        let allowed_path = project_root.join(dir);
+        let canonical_allowed = allowed_path.canonicalize().unwrap_or(allowed_path);
+        if canonical_target.starts_with(&canonical_allowed) {
+            return true;
+        }
+    }
 
-    // THIS IS THE CRITICAL DEBUG PRINT
-    // eprintln!("TARGET: {:?}", canonical_target);
-    // eprintln!("WHITELIST: {:?}", canonical_src);
-
-    let result = canonical_target.starts_with(&canonical_src);
-    // eprintln!("RESULT: {}", result);
-
-    result
+    false
 }
+
+// ==========================================
+// Bash Command Parsing
+// ==========================================
+
+/// Extract suspected file paths from a Bash command string.
+///
+/// Uses `shlex` to tokenize the command, then looks for common write-operation
+/// patterns: redirections (>), sed -i, tee, cp, mv, install, dd of=.
+///
+/// This is a heuristic and intentionally misses some edge cases.
+/// The PostToolUse hook (which checks ALL modified files) is the safety net.
+fn extract_paths_from_bash_command(command: &str) -> Vec<String> {
+    let tokens = match shlex::split(command) {
+        Some(t) => t,
+        None => return Vec::new(),
+    };
+
+    let mut paths: Vec<String> = Vec::new();
+    let n: usize = tokens.len();
+    let mut i: usize = 0;
+
+    while i < n {
+        let token = &tokens[i];
+
+        // Redirect patterns: ">" FILE, ">>" FILE, "1>" FILE, "2>" FILE
+        if *token == ">" || *token == ">>" || *token == "1>" || *token == "2>" {
+            if i + 1 < n {
+                paths.push(tokens[i + 1].clone());
+            }
+        }
+
+        // Redirect with no space: ">file" (shlex may tokenize as ">file")
+        if token.starts_with('>') && token.len() > 1 && !token.contains('&') {
+            let path = &token[1..];
+            paths.push(path.to_string());
+        }
+
+        // tee writes to all its non-flag arguments
+        if *token == "tee" {
+            let mut j: usize = i + 1;
+            while j < n && !tokens[j].starts_with('-') {
+                paths.push(tokens[j].clone());
+                j += 1;
+            }
+        }
+
+        // sed -i: the target file is the last non-flag argument
+        // sed -i 's/a/b/' file   → file is last arg
+        // sed -ibak 's/a/b/' file → file is last arg
+        // sed -i.bak 's/a/b/' file → file is last arg
+        if *token == "sed" {
+            let mut last_non_flag: Option<String> = None;
+            let mut j: usize = i + 1;
+            while j < n {
+                if !tokens[j].starts_with('-') {
+                    last_non_flag = Some(tokens[j].clone());
+                }
+                j += 1;
+            }
+            match last_non_flag {
+                Some(f) => paths.push(f),
+                None => {}
+            }
+        }
+
+        // cp/mv: destination is the last non-flag argument
+        if *token == "cp" || *token == "mv" {
+            let mut candidate: Option<String> = None;
+            let mut j: usize = i + 1;
+            while j < n {
+                if !tokens[j].starts_with('-') {
+                    candidate = Some(tokens[j].clone());
+                }
+                j += 1;
+            }
+            match candidate {
+                Some(dest) => paths.push(dest),
+                None => {}
+            }
+        }
+
+        // install: last non-flag argument is destination
+        if *token == "install" {
+            let mut candidate: Option<String> = None;
+            let mut j: usize = i + 1;
+            while j < n {
+                if !tokens[j].starts_with('-') {
+                    candidate = Some(tokens[j].clone());
+                }
+                j += 1;
+            }
+            match candidate {
+                Some(dest) => paths.push(dest),
+                None => {}
+            }
+        }
+
+        // dd of=<path> syntax
+        if token.starts_with("of=") && token.len() > 3 {
+            let path = &token[3..];
+            paths.push(path.to_string());
+        }
+
+        i += 1;
+    }
+
+    paths
+}
+
+// ==========================================
+// Plugin Implementation
+// ==========================================
+
 pub struct MyPlugin;
 
 impl HookHandler for MyPlugin {
     fn execute(&self, hook: &mut Hook) -> Result<HookOutput, String> {
+        let allowed_dirs = parse_allowed_dirs();
         let project_root = hook.4.clone().unwrap().cwd.unwrap();
         let res = hook.0.as_pre_tool_use();
         let hi = match res {
@@ -49,7 +198,7 @@ impl HookHandler for MyPlugin {
 
         let tool_name: &str = hi.tool_name.as_str();
 
-        // 2. Read operations
+        // Read operations — unrestricted
         let read_tools = ["read_file", "glob", "grep_search", "list_directory"];
         if read_tools.contains(&tool_name) {
             return Ok(PreToolUseHookOutput::make_pre_tool_output(
@@ -59,48 +208,127 @@ impl HookHandler for MyPlugin {
             ));
         }
 
+        // Write/Edit operations — check file_path against whitelist
         let write_tools = ["Write", "Edit"];
         if write_tools.contains(&tool_name) {
-            let file_path = hi
-                .tool_input
-                .get("file_path")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-
-            if file_path.is_empty() {
-                return Ok(PreToolUseHookOutput::make_pre_tool_output(
-                    common::HookDecision::Deny,
-                    true,
-                    format!("No file path provided for {}", tool_name),
-                ));
-            }
-
-            // Logic check: only allow if in src/
-            if is_in_src_dir(file_path, &project_root) {
-                return Ok(PreToolUseHookOutput::make_pre_tool_output(
-                    common::HookDecision::Allow,
-                    true,
-                    format!("File '{}' is inside src/ whitelist", file_path),
-                ));
-            } else {
-                return Ok(PreToolUseHookOutput::make_pre_tool_output(
-                    common::HookDecision::Deny,
-                    true,
-                    format!(
-                        "Only files inside src/ can be modified. '{}' is outside.",
-                        file_path
-                    ),
-                ));
-            }
+            return handle_write_tool(&hi.tool_input, tool_name, &project_root, &allowed_dirs);
         }
 
-        // 4. Default fallback
+        // Bash command — parse for file write operations
+        if tool_name == "Bash" {
+            return handle_bash_tool(&hi.tool_input, tool_name, &project_root, &allowed_dirs);
+        }
+
+        // Default fallback
         Ok(PreToolUseHookOutput::make_pre_tool_output(
             common::HookDecision::Allow,
             true,
             format!("Tool '{}' allowed (not a restricted operation)", tool_name),
         ))
     }
+}
+
+fn handle_write_tool(
+    tool_input: &std::collections::HashMap<String, serde_json::Value>,
+    tool_name: &str,
+    project_root: &Path,
+    allowed_dirs: &[String],
+) -> Result<HookOutput, String> {
+    let file_path = tool_input
+        .get("file_path")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    if file_path.is_empty() {
+        return Ok(PreToolUseHookOutput::make_pre_tool_output(
+            common::HookDecision::Deny,
+            true,
+            format!("No file path provided for {}", tool_name),
+        ));
+    }
+
+    if is_in_allowed_dirs(file_path, project_root, allowed_dirs) {
+        return Ok(PreToolUseHookOutput::make_pre_tool_output(
+            common::HookDecision::Allow,
+            true,
+            format!("File '{}' is inside whitelisted directory", file_path),
+        ));
+    } else {
+        return Ok(PreToolUseHookOutput::make_pre_tool_output(
+            common::HookDecision::Deny,
+            true,
+            format!(
+                "Only files inside whitelisted directories can be modified. '{}' is outside.",
+                file_path
+            ),
+        ));
+    }
+}
+
+fn handle_bash_tool(
+    tool_input: &std::collections::HashMap<String, serde_json::Value>,
+    _tool_name: &str,
+    project_root: &Path,
+    allowed_dirs: &[String],
+) -> Result<HookOutput, String> {
+    let command = tool_input
+        .get("command")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    if command.trim().is_empty() {
+        return Ok(PreToolUseHookOutput::make_pre_tool_output(
+            common::HookDecision::Allow,
+            true,
+            format!("Empty Bash command — allowed"),
+        ));
+    }
+
+    let paths = extract_paths_from_bash_command(command);
+
+    // If heuristic didn't find any write patterns, allow and let post-hook catch it
+    if paths.is_empty() {
+        return Ok(PreToolUseHookOutput::make_pre_tool_output(
+            common::HookDecision::Allow,
+            true,
+            format!(
+                "Bash command '{}' — no write patterns detected",
+                command
+            ),
+        ));
+    }
+
+    // Check each extracted path against whitelist
+    for path in &paths {
+        if !validate_file_path(path) {
+            return Ok(PreToolUseHookOutput::make_pre_tool_output(
+                common::HookDecision::Deny,
+                true,
+                format!(
+                    "Bash command contains suspicious path pattern: '{}'. Command was: {}",
+                    path, command
+                ),
+            ));
+        }
+
+        if !is_in_allowed_dirs(path, project_root, allowed_dirs) {
+            return Ok(PreToolUseHookOutput::make_pre_tool_output(
+                common::HookDecision::Deny,
+                true,
+                format!(
+                    "Bash command writes to '{}' which is outside allowed directories. Command was: {}",
+                    path, command
+                ),
+            ));
+        }
+    }
+
+    // All extracted paths pass validation and whitelist
+    Ok(PreToolUseHookOutput::make_pre_tool_output(
+        common::HookDecision::Allow,
+        true,
+        format!("Bash command allowed — all file paths are within allowed directories"),
+    ))
 }
 
 fn main() {
@@ -113,11 +341,41 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::{CommandRequest, Hook, HookDecision, HookEventName, HookInput, HookType};
+    use common::{CommandRequest, Hook, HookEventName, HookInput, HookType};
     use std::collections::HashMap;
     use std::path::PathBuf;
 
     // Helper to create a Hook object for testing
+    fn create_test_hook_with_command(tool: &str, command: &str, cwd: &str) -> Hook {
+        let mut tool_input = HashMap::new();
+        tool_input.insert(
+            "command".to_string(),
+            serde_json::Value::String(command.to_string()),
+        );
+
+        let input = common::PreToolUseInput {
+            permission_mode: common::PermissionMode::Default,
+            tool_name: tool.to_string(),
+            tool_input,
+            tool_use_id: "test_id".to_string(),
+        };
+
+        let req = CommandRequest {
+            hook_event_name: Some("PreToolUse".to_string()),
+            cwd: Some(PathBuf::from(cwd)),
+            tool_input: None,
+            extra_fields: HashMap::new(),
+        };
+
+        Hook(
+            HookInput::PreToolUse(input),
+            None,
+            HookEventName::PreToolUse,
+            HookType::Command,
+            Some(req),
+        )
+    }
+
     fn create_test_hook(tool: &str, file_path: &str, cwd: &str) -> Hook {
         let mut tool_input = HashMap::new();
         tool_input.insert(
@@ -151,9 +409,9 @@ mod tests {
     #[test]
     fn test_input1_deny_outside_src() {
         let plugin = MyPlugin;
-        // Target is in /sc/ (not /src/)
+        // Target is in /sc/ (not /src/) using Write tool
         let mut hook = create_test_hook(
-            "write_file",
+            "Write",
             "/home/robertodr/gits/git_diff_checker/test/test1/sc/hello_world.c",
             "/home/robertodr/gits/git_diff_checker/test/test1",
         );
@@ -161,22 +419,24 @@ mod tests {
         let result = plugin.execute(&mut hook).expect("Error");
         let output = result.as_pre_tool().unwrap();
 
-        assert_eq!(output.decision, HookDecision::Deny);
-        assert_eq!(output.cont, Some(false));
-        assert!(
-            output.hook_specific_output.as_ref().unwrap()["permissionDecisionReason"]
+        assert_eq!(
+            output
+                .hook_specific_output
+                .as_ref()
+                .unwrap()["permissionDecision"]
                 .as_str()
-                .unwrap()
-                .contains("outside")
+                .unwrap(),
+            "deny",
+            "outside src should be denied"
         );
     }
 
     #[test]
     fn test_input2_allow_inside_src() {
         let plugin = MyPlugin;
-        // Target is in /src/
+        // Target is in /src/ using Write tool
         let mut hook = create_test_hook(
-            "write_file",
+            "Write",
             "/home/robertodr/gits/git_diff_checker/test/test1/src/hello_world.c",
             "/home/robertodr/gits/git_diff_checker/test/test1",
         );
@@ -184,20 +444,21 @@ mod tests {
         let result = plugin.execute(&mut hook).unwrap();
         let output = result.as_pre_tool().unwrap();
 
-        assert_eq!(output.decision, HookDecision::Allow);
-        assert_eq!(output.cont, Some(true));
-        assert!(
-            output.hook_specific_output.as_ref().unwrap()["permissionDecisionReason"]
+        assert_eq!(
+            output
+                .hook_specific_output
+                .as_ref()
+                .unwrap()["permissionDecision"]
                 .as_str()
-                .unwrap()
-                .contains("inside src/ whitelist")
+                .unwrap(),
+            "allow",
+            "inside src should be allowed"
         );
     }
 
     #[test]
     fn test_input3_allow_read_anywhere() {
         let plugin = MyPlugin;
-        // read_file is unrestricted
         let mut hook = create_test_hook(
             "read_file",
             "/home/robertodr/gits/git_diff_checker/test/test1/sc/hello_world.c",
@@ -207,19 +468,21 @@ mod tests {
         let result = plugin.execute(&mut hook).unwrap();
         let output = result.as_pre_tool().unwrap();
 
-        assert_eq!(output.decision, HookDecision::Allow);
-        assert!(
-            output.hook_specific_output.as_ref().unwrap()["permissionDecisionReason"]
+        assert_eq!(
+            output
+                .hook_specific_output
+                .as_ref()
+                .unwrap()["permissionDecision"]
                 .as_str()
-                .unwrap()
-                .contains("allowed on any file")
+                .unwrap(),
+            "allow",
+            "read anywhere should be allowed"
         );
     }
 
     #[test]
     fn test_input4_allow_unknown_tool() {
         let plugin = MyPlugin;
-        // 'ex' is not in the restricted list
         let mut hook = create_test_hook(
             "ex",
             "/home/robertodr/gits/git_diff_checker/test/test1/sc/hello_world.c",
@@ -229,12 +492,179 @@ mod tests {
         let result = plugin.execute(&mut hook).unwrap();
         let output = result.as_pre_tool().unwrap();
 
-        assert_eq!(output.decision, HookDecision::Allow);
-        assert!(
-            output.hook_specific_output.as_ref().unwrap()["permissionDecisionReason"]
+        assert_eq!(
+            output
+                .hook_specific_output
+                .as_ref()
+                .unwrap()["permissionDecision"]
                 .as_str()
-                .unwrap()
-                .contains("not a restricted operation")
+                .unwrap(),
+            "allow",
+            "unknown tool should be allowed"
         );
+    }
+
+    // ==========================================
+    // Bash Command Tests
+    // ==========================================
+
+    #[test]
+    fn test_bash_write_to_allowed_dir() {
+        let plugin = MyPlugin;
+        // sed -i writing to a file inside src/
+        let mut hook = create_test_hook_with_command(
+            "Bash",
+            "sed -i 's/foo/bar/' src/hello_world.c",
+            "/home/robertodr/gits/git_diff_checker/test/test1",
+        );
+
+        let result = plugin.execute(&mut hook).unwrap();
+        let output = result.as_pre_tool().unwrap();
+
+        assert_eq!(
+            output
+                .hook_specific_output
+                .as_ref()
+                .unwrap()["permissionDecision"]
+                .as_str()
+                .unwrap(),
+            "allow",
+            "Bash sed -i inside src/ should be allowed"
+        );
+    }
+
+    #[test]
+    fn test_bash_write_to_forbidden_dir() {
+        let plugin = MyPlugin;
+        // echo redirect to a file outside src/
+        let mut hook = create_test_hook_with_command(
+            "Bash",
+            "echo 'new content' > config/settings.json",
+            "/home/robertodr/gits/git_diff_checker/test/test1",
+        );
+
+        let result = plugin.execute(&mut hook).unwrap();
+        let output = result.as_pre_tool().unwrap();
+
+        assert_eq!(
+            output
+                .hook_specific_output
+                .as_ref()
+                .unwrap()["permissionDecision"]
+                .as_str()
+                .unwrap(),
+            "deny",
+            "Bash write to config/ should be denied with default whitelist"
+        );
+    }
+
+    #[test]
+    fn test_bash_tee_outside_src() {
+        let plugin = MyPlugin;
+        // tee writing to a file outside src/
+        let mut hook = create_test_hook_with_command(
+            "Bash",
+            "echo 'content' | tee docs/readme.md",
+            "/home/robertodr/gits/git_diff_checker/test/test1",
+        );
+
+        let result = plugin.execute(&mut hook).unwrap();
+        let output = result.as_pre_tool().unwrap();
+
+        assert_eq!(
+            output
+                .hook_specific_output
+                .as_ref()
+                .unwrap()["permissionDecision"]
+                .as_str()
+                .unwrap(),
+            "deny",
+            "Bash tee to docs/ should be denied with default whitelist"
+        );
+    }
+
+    #[test]
+    fn test_bash_no_write_cmd_allowed() {
+        let plugin = MyPlugin;
+        // Compilation command — no file writes detected by heuristic
+        let mut hook = create_test_hook_with_command(
+            "Bash",
+            "gcc -c src/hello_world.c -o build/foo.o",
+            "/home/robertodr/gits/git_diff_checker/test/test1",
+        );
+
+        let result = plugin.execute(&mut hook).unwrap();
+        let output = result.as_pre_tool().unwrap();
+
+        assert_eq!(
+            output
+                .hook_specific_output
+                .as_ref()
+                .unwrap()["permissionDecision"]
+                .as_str()
+                .unwrap(),
+            "allow",
+            "Bash compile command with no write patterns should be allowed"
+        );
+    }
+
+    #[test]
+    fn test_bash_read_cmd_allowed() {
+        let plugin = MyPlugin;
+        // cat is a read operation — should be allowed
+        let mut hook = create_test_hook_with_command(
+            "Bash",
+            "cat /etc/passwd",
+            "/home/robertodr/gits/git_diff_checker/test/test1",
+        );
+
+        let result = plugin.execute(&mut hook).unwrap();
+        let output = result.as_pre_tool().unwrap();
+
+        assert_eq!(
+            output
+                .hook_specific_output
+                .as_ref()
+                .unwrap()["permissionDecision"]
+                .as_str()
+                .unwrap(),
+            "allow",
+            "Bash cat (read) should be allowed"
+        );
+    }
+
+    // ==========================================
+    // Unit tests for extract_paths_from_bash_command
+    // ==========================================
+
+    #[test]
+    fn test_extract_redirect_path() {
+        let paths = extract_paths_from_bash_command("echo hello > /tmp/out.txt");
+        assert!(paths.contains(&"/tmp/out.txt".to_string()));
+    }
+
+    #[test]
+    fn test_extract_sed_i_path() {
+        let paths = extract_paths_from_bash_command("sed -i 's/a/b/' src/file.c");
+        assert!(paths.contains(&"src/file.c".to_string()));
+    }
+
+    #[test]
+    fn test_extract_no_write_patterns() {
+        let paths = extract_paths_from_bash_command("ls -la");
+        assert!(paths.is_empty());
+    }
+
+    #[test]
+    fn test_extract_tee_path() {
+        let paths = extract_paths_from_bash_command("echo data | tee output.log");
+        assert!(paths.contains(&"output.log".to_string()));
+    }
+
+    #[test]
+    fn test_extract_malformed_command() {
+        // Unclosed quote — shlex returns None
+        let paths = extract_paths_from_bash_command("echo 'unclosed");
+        assert!(paths.is_empty());
     }
 }

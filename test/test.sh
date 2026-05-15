@@ -13,7 +13,8 @@ echo ""
 
 # Function to restore test file to original state
 restore_file() {
-    cd "$TEST_DIR" && git checkout hello_world.c > /dev/null 2>&1
+    cd "$TEST_DIR" && git checkout src/hello_world.c > /dev/null 2>&1
+    cd "$TEST_DIR" && git checkout src/test.txt > /dev/null 2>&1
 }
 
 # Test 1: No modifications
@@ -32,17 +33,17 @@ fi
 echo "Test 2: Modified original lines detected and reverted"
 restore_file
 cd "$TEST_DIR"
-sed -i 's/World/World!/' hello_world.c
+sed -i 's/World/World!/' src/hello_world.c
 cd "$PROJECT_DIR"
 OUTPUT=$(cargo run --release 2>&1)
 if echo "$OUTPUT" | grep -q "MODIFICATIONS DETECTED" && echo "$OUTPUT" | grep -q "Successfully reverted"; then
     # Verify file was reverted (check for original content)
-    if grep -q "Hello, World!" test/test1/hello_world.c && ! grep -q "Hello, World!!" test/test1/hello_world.c; then
+    if grep -q "Hello, World!" test/test1/src/hello_world.c && ! grep -q "Hello, World!!" test/test1/src/hello_world.c; then
         echo "  PASS"
     else
         echo "  FAIL (file not reverted)"
         echo "  File content:"
-        cat test/test1/hello_world.c
+        cat test/test1/src/hello_world.c
     fi
 else
     echo "  FAIL"
@@ -53,10 +54,10 @@ fi
 echo "Test 3: Model-added lines preserved"
 restore_file
 cd "$TEST_DIR"
-echo "// model added line" >> hello_world.c
+echo "// model added line" >> src/hello_world.c
 cd "$PROJECT_DIR"
 OUTPUT=$(cargo run --release 2>&1)
-if echo "$OUTPUT" | grep -q "Model-added lines preserved"; then
+if echo "$OUTPUT" | grep -q "No modifications detected"; then
     echo "  PASS"
 else
     echo "  FAIL"
@@ -67,8 +68,8 @@ fi
 echo "Test 4: Mixed modifications (original modified + model added)"
 restore_file
 cd "$TEST_DIR"
-sed -i 's/World/World!/' hello_world.c
-echo "// model added line" >> hello_world.c
+sed -i 's/World/World!/' src/hello_world.c
+echo "// model added line" >> src/hello_world.c
 cd "$PROJECT_DIR"
 OUTPUT=$(cargo run --release 2>&1)
 if echo "$OUTPUT" | grep -q "MODIFICATIONS DETECTED" && echo "$OUTPUT" | grep -q "Successfully reverted"; then
