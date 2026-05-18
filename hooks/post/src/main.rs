@@ -9,6 +9,7 @@ use common::{
     Hook, HookDecision, HookEngine, HookEventName, HookHandler, HookOutput, HookType,
     PostToolUseHookOutput,
 };
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process;
 
@@ -116,16 +117,28 @@ impl HookHandler for GitDiffPlugin {
             match run_git_diff_checker_all(&project_root, &git_root) {
                 Ok(out) => out,
                 Err(e) => {
-                    let error_output = PostToolUseHookOutput {
-                        cont: Some(false),
-                        stop_reason: Some(e.clone()),
+                    let mut ctx: HashMap<String, serde_json::Value> = HashMap::new();
+                    ctx.insert("hookEventName".into(), "PostToolUse".into());
+                    ctx.insert(
+                        "additionalContext".into(),
+                        format!(
+                            "The git diff checker encountered an error: {}. \
+                             This may indicate a transient issue. \
+                             Ensure files are being modified in allowed directories only.",
+                            e
+                        )
+                        .into(),
+                    );
+                    let guidance_output = PostToolUseHookOutput {
+                        cont: Some(true),
+                        stop_reason: None,
                         suppress_output: None,
                         system_message: None,
-                        reason: Some(e.clone()),
-                        hook_specific_output: None,
-                        decision: Some(HookDecision::Block),
+                        reason: Some(e),
+                        hook_specific_output: Some(ctx),
+                        decision: None,
                     };
-                    return Ok(HookOutput::PostTool(error_output));
+                    return Ok(HookOutput::PostTool(guidance_output));
                 }
             };
 
@@ -145,18 +158,31 @@ impl HookHandler for GitDiffPlugin {
             }
         );
 
-        // Block when modifications to original lines are detected
+        // Guide the agent when modifications to original lines are detected
+        // Instead of blocking (which stops the agent entirely), continue with
+        // factual guidance via additionalContext so the agent can self-correct.
         if detected {
-            let block_output = PostToolUseHookOutput {
-                cont: Some(false),
-                stop_reason: Some(reason.clone()),
+            let mut ctx: HashMap<String, serde_json::Value> = HashMap::new();
+            ctx.insert("hookEventName".into(), "PostToolUse".into());
+            ctx.insert(
+                "additionalContext".into(),
+                "Original committed lines were modified. \
+                 Unauthorized changes have been reverted. \
+                 New code added by the agent has been preserved. \
+                 Only add new lines to existing files — do not modify or delete \
+                 lines that were present in the original commit."
+                    .into(),
+            );
+            let guidance_output = PostToolUseHookOutput {
+                cont: Some(true),
+                stop_reason: None,
                 suppress_output: None,
-                system_message: Some("You are wrong".to_string()),
+                system_message: None,
                 reason: Some(reason),
-                hook_specific_output: None,
-                decision: Some(HookDecision::Block),
+                hook_specific_output: Some(ctx),
+                decision: None,
             };
-            return Ok(HookOutput::PostTool(block_output));
+            return Ok(HookOutput::PostTool(guidance_output));
         }
 
         Ok(HookOutput::PostTool(PostToolUseHookOutput {

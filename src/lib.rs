@@ -329,7 +329,8 @@ fn hunk_affects_original_content(hunk: &HunkInfo, original_line_count: usize) ->
     for i in 0..min_len {
         let orig = original_lines[i].trim();
         let new = new_lines[i].trim();
-        if orig != new {
+        // Only count as modification if original line had real content (not just whitespace)
+        if !orig.is_empty() && orig != new {
             // The non-whitespace content differs - this is a real modification
             has_non_whitespace_changes = true;
             break;
@@ -553,5 +554,22 @@ mod tests {
 
         assert!(result.is_ok());
         assert!(result.unwrap(), "modifications should be detected");
+    }
+
+    #[test]
+    fn test_whitespace_only_original_not_modified() {
+        // A hunk where the original line is whitespace-only (tab) and new line is code.
+        // This should NOT be detected as modifying original content.
+        let hunk = HunkInfo {
+            content: "@@ -1,1 +1,1 @@\n-\t\n+bids[msg.sender] += amount;\n".to_string(),
+            original_start: 1,
+            original_count: 1,
+            new_start: 1,
+            new_count: 1,
+        };
+        assert!(
+            !hunk_affects_original_content(&hunk, 5),
+            "whitespace-only original should not count as modification"
+        );
     }
 }
