@@ -1,0 +1,55 @@
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "http:127.0.0.1:8080",
+    "ANTHROPIC_MODEL": "Qwen3-Coder-Next-APEX-I-Compact",
+    "ANTHROPIC_API_KEY": "sk-no-key-required",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
+    "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1",
+    "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "64000"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.local/bin/pre_hook",
+            "timeout": 30000
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.local/bin/post_hook",
+            "timeout": 60000
+          }
+        ]
+      }
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "filesystem": {
+      "denyWrite": ["."],
+      "allowWrite": ["./src/"],
+      "allowRead": ["."]
+    },
+    "faileIfUnavailable": true,
+    "autoAllowBashIfSandboxed": false
+  },
+  "modelProvider": "custom",
+  "customModel": {
+    "url": "http:localhost:8080",
+    "modelName": "Qwen3-Coder-Next-APEX-I-Compact",
+    "apiKey": "not-needed",
+    "modelCapabilities": ["completion"],
+    "provider": "openai"
+  }
+}
