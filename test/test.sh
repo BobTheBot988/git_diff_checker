@@ -79,5 +79,36 @@ else
     echo "  Output: $OUTPUT"
 fi
 
+# Test 5: Same-hunk mixed (modification + pure addition in same hunk)
+echo "Test 5: Same-hunk mixed modification preserves pure addition"
+restore_file
+cd "$TEST_DIR"
+# Modify line 3 AND add line 4 in a single replacement (same hunk)
+# Using heredoc to avoid escaping issues
+cat > src/hello_world.c << 'HEREDOC_EOF'
+#include <stdio.h>
+int main() {
+  printf("Hello, Revert!\n");
+  // model added inside hunk
+  printf("Second printf\n");
+  return 0;
+}
+HEREDOC_EOF
+cd "$PROJECT_DIR"
+OUTPUT=$(cargo run --release 2>&1)
+if echo "$OUTPUT" | grep -q "MODIFICATIONS DETECTED" && echo "$OUTPUT" | grep -q "Successfully reverted"; then
+    # Verify file: original line restored, pure addition preserved
+    if grep -q "Hello, World!" test/test1/src/hello_world.c && grep -q "model added inside hunk" test/test1/src/hello_world.c; then
+        echo "  PASS"
+    else
+        echo "  FAIL (file content incorrect)"
+        echo "  File content:"
+        cat test/test1/src/hello_world.c
+    fi
+else
+    echo "  FAIL"
+    echo "  Output: $OUTPUT"
+fi
+
 echo ""
 echo "=== Test Suite Complete ==="

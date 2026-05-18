@@ -19,6 +19,7 @@ You are operating within a restricted environment enforced by two mandatory hook
   - **Whitelist Enforcement:** Write/Edit operations are strictly limited to whitelisted directories (default: `src/`).
   - **Command Parsing:** All Bash commands (e.g., `sed`, `>`, `tee`, `cp`) are scanned. Writes outside whitelisted paths or path traversal attempts will be denied.
   - **Read Access:** You have unrestricted read access to the entire repository for context.
+
 - **`hooks/post/` (PostToolUse):**
   - **Selective Revert Strategy:** After every tool call, a `git_diff_checker` runs.
   - **Integrity Protection:** If you modify pre-existing lines (instead of just appending new logic or helper functions), the engine will automatically detect "MODIFICATIONS DETECTED" and revert those specific hunks using a `git apply -R` strategy.

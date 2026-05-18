@@ -1,4 +1,4 @@
-use git_diff_checker::check_file_modified;
+use git_diff_checker::{check_file_modified, selective_revert};
 use std::fs;
 
 /// Clean up any stale git lock file
@@ -85,4 +85,72 @@ fn test_no_modifications_detected() {
 
     // Restore original file
     std::fs::write(&current_path, original_content).expect("Failed to restore");
+}
+
+/// Test selective_revert preserves pure additions when same hunk has modifications
+#[test]
+fn test_mixed_hunk_preserves_pure_additions() {
+    let repo_path = "test/test1";
+    let filename = "src/hello_world.c";
+
+    // Clean up any stale lock file
+    cleanup_git_lock(repo_path);
+
+    // Reset file to HEAD
+    let status = std::process::Command::new("git")
+        .args(["checkout", "HEAD", "--", filename])
+        .current_dir(repo_path)
+        .status()
+        .expect("Failed to run git checkout");
+
+    if !status.success() {
+        panic!("Git checkout failed");
+    }
+
+    let current_path = std::path::Path::new(repo_path).join(filename);
+    let original_content = std::fs::read_to_string(&current_path).expect("Failed to read file");
+
+    // Modify an existing line AND add a pure addition in the same region
+    let modified_content = original_content.replace(
+        "  printf(\"Hello, World!\\n\");",
+        "  printf(\"Hello, Revert!\\n\");\n  // model added inline",
+    );
+    std::fs::write(&current_path, &modified_content).expect("Failed to modify file");
+
+    // Run selective revert
+    let result = selective_revert(repo_path, filename);
+    assert!(result.is_ok(), "selective_revert should succeed");
+
+    let detail = result.unwrap();
+    assert_eq!(detail.reverted_hunks, 1, "Expected 1 hunk reverted");
+
+    // Verify file on disk
+    let final_content = std::fs::read_to_string(&current_path).expect("Failed to read result");
+    assert!(
+        final_content.contains("Hello, World!"),
+        "Original line should be restored"
+    );
+    assert!(
+        !final_content.contains("Hello, Revert!"),
+        "Modified version should not remain"
+    );
+    assert!(
+        final_content.contains("model added inline"),
+        "Pure addition in same hunk should be preserved"
+    );
+
+    // Verify RevertDetail has correct lines
+    let expected_reverted = "  printf(\"Hello, World!\\n\");";
+    assert!(
+        detail.reverted_lines.contains(&expected_reverted.to_string()),
+        "RevertDetail should contain the restored original line"
+    );
+    let expected_preserved = "  // model added inline";
+    assert!(
+        detail.preserved_lines.contains(&expected_preserved.to_string()),
+        "RevertDetail should contain the preserved pure addition"
+    );
+
+    // Restore file
+    std::fs::write(&current_path, original_content).expect("Failed to restore file");
 }

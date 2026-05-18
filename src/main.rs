@@ -91,10 +91,10 @@ fn run_single_file_mode(repo_path_str: &str, args: &Args) {
                         );
 
                         match selective_revert(repo_path_str, &filename_str) {
-                            Ok(count) => {
+                            Ok(detail) => {
                                 println!(
                                     "\nSuccessfully reverted {} hunk(s) affecting original lines.",
-                                    count
+                                    detail.reverted_hunks
                                 );
                                 println!("Model-added lines preserved.");
                                 println!("Communicate the revert to the LLM.");
@@ -156,9 +156,9 @@ fn run_all_mode(repo_path_str: &str) {
                 modified_count += 1;
 
                 match selective_revert(repo_path_str, file) {
-                    Ok(count) => {
-                        println!("Successfully reverted {} hunk(s).", count);
-                        total_reverted += count;
+                    Ok(detail) => {
+                        println!("Successfully reverted {} hunk(s).", detail.reverted_hunks);
+                        total_reverted += detail.reverted_hunks;
                     }
                     Err(e) => {
                         eprintln!("Failed to revert: {}", e);

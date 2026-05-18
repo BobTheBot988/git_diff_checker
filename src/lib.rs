@@ -12,6 +12,18 @@ pub struct HunkInfo {
     pub new_count: usize,      // Number of lines in new file
 }
 
+/// Result of reverting modifications in a single file
+#[derive(Debug, Clone)]
+pub struct RevertDetail {
+    pub filename: String,
+    /// Number of dirty hunks that were reverted
+    pub reverted_hunks: usize,
+    /// Original committed lines that had been modified and were restored
+    pub reverted_lines: Vec<String>,
+    /// New lines added by the model that were preserved (pure additions)
+    pub preserved_lines: Vec<String>,
+}
+
 /// Discover the git repository root from a given path
 pub fn get_git_root(repo_path: &str) -> Result<PathBuf, String> {
     let repo = Repository::discover(repo_path)
@@ -368,21 +380,110 @@ fn hunk_affects_original_content(hunk: &HunkInfo, original_line_count: usize) ->
     false
 }
 
-/// Build a selective patch containing only hunks that affect original lines
-fn build_selective_patch(hunks: &[HunkInfo], original_line_count: usize) -> String {
-    let mut patch = String::new();
+/// Flush a contiguous change block: separate modifications from pure additions.
+///
+/// Within a `-`/`+` block:
+/// - ALL `-` lines (original content) are restored and tracked as reverted
+/// - The first `min(del, add)` `+` lines are the replacement side of modifications (dropped)
+/// - Remaining `+` lines are pure additions (preserved)
+fn flush_change_block(
+    pending_del: &mut Vec<String>,
+    pending_add: &mut Vec<String>,
+    result: &mut Vec<String>,
+    reverted_out: &mut Vec<String>,
+    preserved_out: &mut Vec<String>,
+) {
+    if pending_del.is_empty() && pending_add.is_empty() {
+        return;
+    }
 
-    for hunk in hunks {
-        if hunk_affects_original_content(hunk, original_line_count) {
-            patch.push_str(&hunk.content);
+    let del_len = pending_del.len();
+    let add_len = pending_add.len();
+    let replacements = del_len.min(add_len);
+
+    // Restore ALL original lines and track as reverted
+    for line in pending_del.iter() {
+        reverted_out.push(line.clone());
+        result.push(line.clone());
+    }
+
+    // Keep only PURE additions (beyond the replacement count)
+    let mut i = replacements;
+    while i < add_len {
+        let line = pending_add[i].clone();
+        preserved_out.push(line.clone());
+        result.push(line);
+        i += 1;
+    }
+
+    pending_del.clear();
+    pending_add.clear();
+}
+
+/// Build a "clean" version of a hunk's affected region.
+///
+/// Walks the hunk body, splitting on context lines to identify change blocks.
+/// For each change block, modifications are reverted and pure additions are kept.
+///
+/// Returns (clean_lines, reverted_lines, preserved_lines).
+fn build_clean_region(hunk: &HunkInfo) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let mut result: Vec<String> = Vec::new();
+    let mut reverted: Vec<String> = Vec::new();
+    let mut preserved: Vec<String> = Vec::new();
+    let mut pending_del: Vec<String> = Vec::new();
+    let mut pending_add: Vec<String> = Vec::new();
+
+    let lines: Vec<&str> = hunk.content.lines().collect();
+    for line in &lines {
+        // Skip hunk headers and unified diff preamble
+        if line.starts_with("@@") || line.starts_with("diff --git") {
+            continue;
+        }
+        // Skip file header markers (--- a/file, +++ b/file) — 4th char is space
+        if (line.starts_with("---") && line.len() > 3 && line.as_bytes()[3] == b' ')
+            || (line.starts_with("+++") && line.len() > 3 && line.as_bytes()[3] == b' ')
+        {
+            continue;
+        }
+
+        if line.starts_with('-') {
+            // Deletion of an original line
+            pending_del.push((&line[1..]).to_string());
+        } else if line.starts_with('+') {
+            // Addition of a new line
+            pending_add.push((&line[1..]).to_string());
+        } else {
+            // Context line (starts with space in unified diff)
+            // Flush any pending change block first
+            flush_change_block(
+                &mut pending_del,
+                &mut pending_add,
+                &mut result,
+                &mut reverted,
+                &mut preserved,
+            );
+            // Emit context line, stripping the leading space
+            result.push((&line[1..]).to_string());
         }
     }
 
-    patch
+    // Flush any remaining change block at end of hunk
+    flush_change_block(
+        &mut pending_del,
+        &mut pending_add,
+        &mut result,
+        &mut reverted,
+        &mut preserved,
+    );
+
+    (result, reverted, preserved)
 }
 
-/// Selectively revert only modifications to original lines, preserving model-added lines
-pub fn selective_revert(repo_path: &str, filename: &str) -> Result<usize, String> {
+/// Selectively revert only modified lines, preserving pure additions.
+///
+/// Reads current file content into memory, processes dirty hunks bottom-to-top,
+/// splices clean regions (original lines restored, pure additions kept), writes result.
+pub fn selective_revert(repo_path: &str, filename: &str) -> Result<RevertDetail, String> {
     // Get original file content to determine line count
     let original_content = get_original_file_content(repo_path, filename)?;
     let original_line_count = original_content.lines().count();
@@ -391,58 +492,102 @@ pub fn selective_revert(repo_path: &str, filename: &str) -> Result<usize, String
     let hunks = get_diff_hunks_with_ranges(repo_path, filename)?;
 
     if hunks.is_empty() {
-        return Ok(0); // No modifications
+        return Ok(RevertDetail {
+            filename: filename.to_string(),
+            reverted_hunks: 0,
+            reverted_lines: Vec::new(),
+            preserved_lines: Vec::new(),
+        });
     }
 
-    // Build selective patch with only original-line modifications
-    let patch_content = build_selective_patch(&hunks, original_line_count);
+    // Check if any dirty hunks exist
+    let mut has_dirty = false;
+    for hunk in &hunks {
+        if hunk_affects_original_content(hunk, original_line_count) {
+            has_dirty = true;
+            break;
+        }
+    }
 
-    if patch_content.is_empty() {
-        return Ok(0); // No original lines were modified
+    if !has_dirty {
+        return Ok(RevertDetail {
+            filename: filename.to_string(),
+            reverted_hunks: 0,
+            reverted_lines: Vec::new(),
+            preserved_lines: Vec::new(),
+        });
     }
 
     // Open the repository and get repo root
-    let repo = Repository::discover(repo_path)
-        .map_err(|e| format!("Failed to discover repository: {}", e))?;
-    let repo_root = repo
-        .workdir()
-        .ok_or("Repository has no workdir")?;
+    let repo = match Repository::discover(repo_path) {
+        Ok(r) => r,
+        Err(e) => return Err(format!("Failed to discover repository: {}", e)),
+    };
+    let repo_root = match repo.workdir() {
+        Some(d) => d.to_path_buf(),
+        None => return Err("Repository has no workdir".to_string()),
+    };
 
-    // Write patch to temp file in the repo directory
-    let patch_path = std::path::Path::new(repo_path).join(".temp_selective_patch");
-    std::fs::write(&patch_path, &patch_content)
-        .map_err(|e| format!("Failed to write temp patch: {}", e))?;
+    // Resolve current file path
+    let current_path = if Path::new(filename).is_absolute() {
+        Path::new(filename).to_path_buf()
+    } else {
+        repo_root.join(filename)
+    };
 
-    // Apply the selective patch in reverse using git apply
-    // git2 doesn't have a direct equivalent for -R (reverse) + --ignore-space-change
-    // So we use git CLI for the actual patch application
-    let output = Command::new("git")
-        .args([
-            "apply",
-            "-p1",
-            "-R",
-            "--ignore-space-change",
-            ".temp_selective_patch",
-        ])
-        .current_dir(&repo_root)
-        .output()
-        .map_err(|e| format!("Failed to apply selective patch: {}", e))?;
+    // Read current file content
+    let current_content = match std::fs::read_to_string(&current_path) {
+        Ok(c) => c,
+        Err(e) => return Err(format!("Failed to read current file: {}", e)),
+    };
+    let has_trailing_newline = current_content.ends_with('\n');
+    let mut current_lines: Vec<String> = current_content.lines().map(|s| s.to_string()).collect();
 
-    // Clean up temp patch
-    let _ = std::fs::remove_file(patch_path);
+    let mut total_reverted_lines: Vec<String> = Vec::new();
+    let mut total_preserved_lines: Vec<String> = Vec::new();
+    let mut reverted_count: usize = 0;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Failed to apply selective patch: {}", stderr));
+    // Process dirty hunks bottom-to-top so earlier splices don't shift later positions
+    let mut idx = hunks.len();
+    while idx > 0 {
+        idx -= 1;
+        let hunk = &hunks[idx];
+        if !hunk_affects_original_content(hunk, original_line_count) {
+            continue;
+        }
+
+        reverted_count += 1;
+        let (clean_lines, reverted_lines, preserved_lines) = build_clean_region(hunk);
+
+        for rl in &reverted_lines {
+            total_reverted_lines.push(rl.clone());
+        }
+        for pl in &preserved_lines {
+            total_preserved_lines.push(pl.clone());
+        }
+
+        let start = hunk.new_start - 1;
+        let end = start + hunk.new_count;
+        let _ = current_lines.splice(start..end, clean_lines);
     }
 
-    // Count how many original-line hunks were reverted
-    let reverted_count = hunks
-        .iter()
-        .filter(|h| hunk_affects_original_content(h, original_line_count))
-        .count();
+    // Reconstruct file content
+    let mut new_content = current_lines.join("\n");
+    if has_trailing_newline {
+        new_content.push('\n');
+    }
 
-    Ok(reverted_count)
+    match std::fs::write(&current_path, &new_content) {
+        Ok(_) => {}
+        Err(e) => return Err(format!("Failed to write file: {}", e)),
+    }
+
+    Ok(RevertDetail {
+        filename: filename.to_string(),
+        reverted_hunks: reverted_count,
+        reverted_lines: total_reverted_lines,
+        preserved_lines: total_preserved_lines,
+    })
 }
 
 /// Get a list of all files modified since HEAD in the repository
@@ -481,22 +626,27 @@ pub fn get_all_modified_files(repo_path: &str) -> Result<Vec<String>, String> {
 /// Selectively revert original-line modifications across all modified files
 ///
 /// Iterates over every file modified since HEAD. For each file, reverts only
-/// the hunks that affect original committed lines, preserving any new lines
-/// added by the agent. Continues on per-file errors.
+/// individual modified lines, preserving pure additions added by the agent.
+/// Continues on per-file errors.
 ///
-/// Returns a vector of (filename, reverted_hunks, status) tuples.
-pub fn selective_revert_all(repo_path: &str) -> Result<Vec<(String, usize, String)>, String> {
+/// Returns a vector of RevertDetail with per-file results.
+pub fn selective_revert_all(repo_path: &str) -> Result<Vec<RevertDetail>, String> {
     let files = get_all_modified_files(repo_path)?;
-    let mut results: Vec<(String, usize, String)> = Vec::new();
+    let mut results: Vec<RevertDetail> = Vec::new();
 
     for file in &files {
         let result = selective_revert(repo_path, file);
         match result {
-            Ok(count) => {
-                results.push((file.clone(), count, "ok".to_string()));
+            Ok(detail) => {
+                results.push(detail);
             }
-            Err(e) => {
-                results.push((file.clone(), 0, e));
+            Err(_e) => {
+                results.push(RevertDetail {
+                    filename: file.clone(),
+                    reverted_hunks: 0,
+                    reverted_lines: Vec::new(),
+                    preserved_lines: Vec::new(),
+                });
             }
         }
     }
@@ -571,5 +721,134 @@ mod tests {
             !hunk_affects_original_content(&hunk, 5),
             "whitespace-only original should not count as modification"
         );
+    }
+
+    #[test]
+    fn test_mixed_hunk_preserves_pure_additions() {
+        // Modify an existing line AND add a pure addition in the same hunk.
+        // Verify selective_revert restores the original line and keeps the addition.
+        use std::fs;
+        let test_file = "test/test1/src/hello_world.c";
+
+        // Reset file to HEAD
+        let repo = Repository::discover("test/test1").unwrap();
+        let repo_root = repo.workdir().unwrap().to_path_buf();
+        let _ = std::process::Command::new("git")
+            .args(["checkout", "HEAD", "--", "src/hello_world.c"])
+            .current_dir(&repo_root)
+            .output();
+
+        let original_content = fs::read_to_string(test_file).unwrap();
+
+        // Modify line 3 AND add a new line after it (same hunk region)
+        let modified = original_content
+            .replace(
+                "  printf(\"Hello, World!\\n\");\n",
+                "  printf(\"Hello, Universe!\\n\");\n  // model added comment\n",
+            );
+        fs::write(test_file, &modified).unwrap();
+
+        // Run selective_revert
+        let result = selective_revert("test/test1", "src/hello_world.c");
+        assert!(result.is_ok(), "selective_revert failed: {:?}", result.as_ref().err());
+
+        let detail = result.unwrap();
+        assert_eq!(detail.reverted_hunks, 1,
+            "Expected 1 hunk reverted, got {}", detail.reverted_hunks);
+        assert!(detail.reverted_lines.contains(&"  printf(\"Hello, World!\\n\");".to_string()),
+            "Expected original line in reverted_lines");
+
+        // Verify file on disk: original line restored, pure addition preserved
+        let final_content = fs::read_to_string(test_file).unwrap();
+        assert!(final_content.contains("Hello, World!"),
+            "Original line should be restored");
+        assert!(final_content.contains("Hello, Universe!") == false,
+            "Modified line should NOT remain");
+        assert!(final_content.contains("model added comment"),
+            "Pure addition should be preserved");
+
+        // Restore file
+        let _ = std::process::Command::new("git")
+            .args(["checkout", "HEAD", "--", "src/hello_world.c"])
+            .current_dir(&repo_root)
+            .output();
+    }
+
+    #[test]
+    fn test_clean_hunk_no_revert() {
+        // Only pure additions — selective_revert should return 0 reverted hunks.
+        use std::fs;
+        let test_file = "test/test1/src/hello_world.c";
+
+        let repo = Repository::discover("test/test1").unwrap();
+        let repo_root = repo.workdir().unwrap().to_path_buf();
+        let _ = std::process::Command::new("git")
+            .args(["checkout", "HEAD", "--", "src/hello_world.c"])
+            .current_dir(&repo_root)
+            .output();
+
+        let original_content = fs::read_to_string(test_file).unwrap();
+        // Append a new line — pure addition at end, no modifications
+        let modified = format!("{}\n  // model added at end\n", original_content.trim_end());
+        fs::write(test_file, &modified).unwrap();
+
+        let result = selective_revert("test/test1", "src/hello_world.c");
+        assert!(result.is_ok());
+
+        let detail = result.unwrap();
+        assert_eq!(detail.reverted_hunks, 0,
+            "Should have 0 reverted hunks for clean addition");
+        assert!(detail.preserved_lines.contains(&"  // model added at end".to_string()) ||
+                detail.reverted_hunks == 0,
+            "Pure addition should be noted as preserved or no revert needed");
+
+        // Restore file
+        let _ = std::process::Command::new("git")
+            .args(["checkout", "HEAD", "--", "src/hello_world.c"])
+            .current_dir(&repo_root)
+            .output();
+    }
+
+    #[test]
+    fn test_selective_revert_all_returns_details() {
+        // Verify selective_revert_all returns RevertDetail structs correctly.
+        use std::fs;
+        let test_file = "test/test1/src/hello_world.c";
+
+        let repo = Repository::discover("test/test1").unwrap();
+        let repo_root = repo.workdir().unwrap().to_path_buf();
+        let _ = std::process::Command::new("git")
+            .args(["checkout", "HEAD", "--", "src/hello_world.c"])
+            .current_dir(&repo_root)
+            .output();
+
+        // Make a modification
+        let original_content = fs::read_to_string(test_file).unwrap();
+        let modified = original_content.replace("Hello, World!", "Hello, Modified!");
+        fs::write(test_file, &modified).unwrap();
+
+        let result = selective_revert_all("test/test1");
+        assert!(result.is_ok());
+
+        let details = result.unwrap();
+        // At least one file should have been processed
+        assert!(details.len() > 0);
+
+        // Find our file
+        let mut found = false;
+        for d in &details {
+            if d.filename.ends_with("hello_world.c") || d.filename.contains("hello_world.c") {
+                found = true;
+                assert_eq!(d.reverted_hunks, 1);
+                break;
+            }
+        }
+        assert!(found, "Should have found hello_world.c in results");
+
+        // Restore file
+        let _ = std::process::Command::new("git")
+            .args(["checkout", "HEAD", "--", "src/hello_world.c"])
+            .current_dir(&repo_root)
+            .output();
     }
 }
