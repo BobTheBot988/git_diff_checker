@@ -7,6 +7,6 @@
 [submodule "hook"]
 	path = hook
 	url = ./hook
-[submodule "test/test/test3"]
-	path = test/test/test3
+[submodule "test/test3"]
+	path = test/test3
 	url = https://github.com/BobTheBot988/test3
