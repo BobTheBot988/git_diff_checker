@@ -133,6 +133,8 @@ pub enum PermissionMode {
     Plan,
     AutoEdit,
     Yolo,
+    #[serde(rename = "bypassPermissions")]
+    BypassPermissions,
 }
 
 #[derive(Debug, Display, Serialize, Deserialize, Clone)]
