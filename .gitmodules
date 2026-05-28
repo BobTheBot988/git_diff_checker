@@ -10,3 +10,9 @@
 [submodule "test/test3"]
 	path = test/test3
 	url = https://github.com/BobTheBot988/test3
+[submodule "test/test4"]
+	path = test/test4
+	url = https://github.com/BobTheBot988/test4
+[submodule "test/test5"]
+	path = test/test5
+	url = https://github.com/BobTheBot988/sec_proj.git
