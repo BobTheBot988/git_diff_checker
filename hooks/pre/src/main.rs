@@ -1,11 +1,12 @@
 #!/usr/bin/env -S cargo -E run
-/// Qwen Code PreToolUse Hook: Enforce src/ directory whitelist for file modifications.
+/// Qwen Code PreToolUse Hook: Enforce path whitelist and blacklist for file modifications.
 ///
 /// This hook:
 /// - Allows read operations (read_file, glob, grep_search) on any file
-/// - Allows write/edit operations ONLY on files inside whitelisted directories
+/// - Allows write/edit operations ONLY on files inside whitelisted directories AND not in blocked paths
 /// - Parses Bash commands to detect file writes outside whitelisted directories
-/// - Whitelist is configured via HOOK_ALLOWED_DIRS env var (comma-separated, default: "src")
+/// - Whitelist configured via HOOK_ALLOWED_DIRS env var (comma-separated, default: "src")
+/// - Blacklist configured via HOOK_BLOCKED_PATHS env var (comma-separated, default: none)
 use common::{Hook, HookEngine, HookHandler, HookOutput, PreToolUseHookOutput};
 use std::path::Path;
 
@@ -19,6 +20,19 @@ fn parse_allowed_dirs() -> Vec<String> {
     match std::env::var("HOOK_ALLOWED_DIRS") {
         Ok(val) => val.split(',').map(|s| s.trim().to_string()).collect(),
         Err(_) => vec!["src".to_string()],
+    }
+}
+
+// ==========================================
+// Blacklist Configuration
+// ==========================================
+
+/// Parse the blacklist of blocked paths from the HOOK_BLOCKED_PATHS env var.
+/// Defaults to empty (no blocked paths).
+fn parse_blocked_paths() -> Vec<String> {
+    match std::env::var("HOOK_BLOCKED_PATHS") {
+        Ok(val) => val.split(',').map(|s| s.trim().to_string()).collect(),
+        Err(_) => Vec::new(),
     }
 }
 
@@ -64,6 +78,43 @@ fn is_in_allowed_dirs(file_path: &str, project_root: &Path, allowed_dirs: &[Stri
         let allowed_path = project_root.join(dir);
         let canonical_allowed = allowed_path.canonicalize().unwrap_or(allowed_path);
         if canonical_target.starts_with(&canonical_allowed) {
+            return true;
+        }
+    }
+
+    false
+}
+
+// ==========================================
+// Path Blacklist Check
+// ==========================================
+
+/// Check if a file path matches any blocked path (file or directory).
+/// Uses same canonicalization logic as the whitelist check.
+fn is_in_blocked_paths(file_path: &str, project_root: &Path, blocked_paths: &[String]) -> bool {
+    if blocked_paths.is_empty() {
+        return false;
+    }
+
+    let p = Path::new(file_path);
+    let abs_path = if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        project_root.join(file_path)
+    };
+
+    let canonical_target = abs_path.canonicalize().unwrap_or_else(|_| {
+        abs_path
+            .parent()
+            .and_then(|parent| parent.canonicalize().ok())
+            .map(|parent| parent.join(abs_path.file_name().unwrap_or_default()))
+            .unwrap_or(abs_path)
+    });
+
+    for entry in blocked_paths {
+        let blocked_path = project_root.join(entry);
+        let canonical_blocked = blocked_path.canonicalize().unwrap_or(blocked_path);
+        if canonical_target.starts_with(&canonical_blocked) {
             return true;
         }
     }
@@ -189,6 +240,7 @@ pub struct MyPlugin;
 impl HookHandler for MyPlugin {
     fn execute(&self, hook: &mut Hook) -> Result<HookOutput, String> {
         let allowed_dirs = parse_allowed_dirs();
+        let blocked_paths = parse_blocked_paths();
         let project_root = hook.4.clone().unwrap().cwd.unwrap();
         let res = hook.0.as_pre_tool_use();
         let hi = match res {
@@ -211,12 +263,12 @@ impl HookHandler for MyPlugin {
         // Write/Edit operations — check file_path against whitelist
         let write_tools = ["Write", "Edit"];
         if write_tools.contains(&tool_name) {
-            return handle_write_tool(&hi.tool_input, tool_name, &project_root, &allowed_dirs);
+            return handle_write_tool(&hi.tool_input, tool_name, &project_root, &allowed_dirs, &blocked_paths);
         }
 
         // Bash command — parse for file write operations
         if tool_name == "Bash" {
-            return handle_bash_tool(&hi.tool_input, tool_name, &project_root, &allowed_dirs);
+            return handle_bash_tool(&hi.tool_input, tool_name, &project_root, &allowed_dirs, &blocked_paths);
         }
 
         // Default fallback
@@ -233,6 +285,7 @@ fn handle_write_tool(
     tool_name: &str,
     project_root: &Path,
     allowed_dirs: &[String],
+    blocked_paths: &[String],
 ) -> Result<HookOutput, String> {
     let file_path = tool_input
         .get("file_path")
@@ -247,13 +300,7 @@ fn handle_write_tool(
         ));
     }
 
-    if is_in_allowed_dirs(file_path, project_root, allowed_dirs) {
-        return Ok(PreToolUseHookOutput::make_pre_tool_output(
-            common::HookDecision::Allow,
-            true,
-            format!("File '{}' is inside whitelisted directory", file_path),
-        ));
-    } else {
+    if !is_in_allowed_dirs(file_path, project_root, allowed_dirs) {
         return Ok(PreToolUseHookOutput::make_pre_tool_output(
             common::HookDecision::Deny,
             true,
@@ -263,6 +310,23 @@ fn handle_write_tool(
             ),
         ));
     }
+
+    if is_in_blocked_paths(file_path, project_root, blocked_paths) {
+        return Ok(PreToolUseHookOutput::make_pre_tool_output(
+            common::HookDecision::Deny,
+            true,
+            format!(
+                "File '{}' is in a blocked path and cannot be modified.",
+                file_path
+            ),
+        ));
+    }
+
+    return Ok(PreToolUseHookOutput::make_pre_tool_output(
+        common::HookDecision::Allow,
+        true,
+        format!("File '{}' is inside whitelisted directory", file_path),
+    ));
 }
 
 fn handle_bash_tool(
@@ -270,6 +334,7 @@ fn handle_bash_tool(
     _tool_name: &str,
     project_root: &Path,
     allowed_dirs: &[String],
+    blocked_paths: &[String],
 ) -> Result<HookOutput, String> {
     let command = tool_input
         .get("command")
@@ -327,6 +392,17 @@ fn handle_bash_tool(
                 true,
                 format!(
                     "Bash command writes to '{}' which is outside allowed directories. Command was: {}",
+                    path, command
+                ),
+            ));
+        }
+
+        if is_in_blocked_paths(path, project_root, blocked_paths) {
+            return Ok(PreToolUseHookOutput::make_pre_tool_output(
+                common::HookDecision::Deny,
+                true,
+                format!(
+                    "Bash command writes to '{}' which is in a blocked path. Command was: {}",
                     path, command
                 ),
             ));
@@ -797,7 +873,135 @@ mod tests {
         );
     }
 
+    // ==========================================
+    // Blocked Path Tests
+    // ==========================================
+
     #[test]
+    fn test_is_in_blocked_paths_matches_file() {
+        let root = Path::new("/home/robertodr/gits/git_diff_checker/test/test1");
+        let blocked = vec!["src/test.txt".to_string()];
+        assert!(
+            is_in_blocked_paths("src/test.txt", root, &blocked),
+            "should match src/test.txt"
+        );
+    }
+
+    #[test]
+    fn test_is_in_blocked_paths_no_match_for_unblocked() {
+        let root = Path::new("/home/robertodr/gits/git_diff_checker/test/test1");
+        let blocked = vec!["src/test.txt".to_string()];
+        assert!(
+            !is_in_blocked_paths("src/hello_world.c", root, &blocked),
+            "should not match src/hello_world.c"
+        );
+    }
+
+    #[test]
+    fn test_is_in_blocked_paths_empty_blocklist() {
+        let root = Path::new("/home/robertodr/gits/git_diff_checker/test/test1");
+        let blocked: Vec<String> = Vec::new();
+        assert!(
+            !is_in_blocked_paths("src/test.txt", root, &blocked),
+            "empty blocklist should match nothing"
+        );
+    }
+
+    #[test]
+    fn test_write_blocked_path_denies() {
+        // Set env var so execute() picks it up
+        std::env::set_var("HOOK_BLOCKED_PATHS", "src/test.txt");
+        let plugin = MyPlugin;
+        let mut hook = create_test_hook(
+            "Write",
+            "/home/robertodr/gits/git_diff_checker/test/test1/src/test.txt",
+            "/home/robertodr/gits/git_diff_checker/test/test1",
+        );
+
+        let result = plugin.execute(&mut hook).unwrap();
+        let output = result.as_pre_tool().unwrap();
+
+        assert_eq!(
+            output.hook_specific_output.as_ref().unwrap()["permissionDecision"]
+                .as_str()
+                .unwrap(),
+            "deny",
+            "write to blocked path should be denied"
+        );
+    }
+
+    #[test]
+    fn test_write_allowed_path_not_blocked() {
+        std::env::set_var("HOOK_BLOCKED_PATHS", "src/test.txt");
+        let plugin = MyPlugin;
+        let mut hook = create_test_hook(
+            "Write",
+            "/home/robertodr/gits/git_diff_checker/test/test1/src/hello_world.c",
+            "/home/robertodr/gits/git_diff_checker/test/test1",
+        );
+
+        let result = plugin.execute(&mut hook).unwrap();
+        let output = result.as_pre_tool().unwrap();
+
+        assert_eq!(
+            output.hook_specific_output.as_ref().unwrap()["permissionDecision"]
+                .as_str()
+                .unwrap(),
+            "allow",
+            "write to unblocked path in allowed dir should be allowed"
+        );
+    }
+
+    #[test]
+    fn test_bash_blocked_path_denies() {
+        std::env::set_var("HOOK_BLOCKED_PATHS", "src/test.txt");
+        let plugin = MyPlugin;
+        let mut hook = create_test_hook_with_command(
+            "Bash",
+            "echo 'data' >> src/test.txt",
+            "/home/robertodr/gits/git_diff_checker/test/test1",
+        );
+
+        let result = plugin.execute(&mut hook).unwrap();
+        let output = result.as_pre_tool().unwrap();
+
+        assert_eq!(
+            output.hook_specific_output.as_ref().unwrap()["permissionDecision"]
+                .as_str()
+                .unwrap(),
+            "deny",
+            "bash write to blocked path should be denied"
+        );
+    }
+
+    #[test]
+    fn test_bash_allowed_path_not_blocked() {
+        std::env::set_var("HOOK_BLOCKED_PATHS", "src/test.txt");
+        let plugin = MyPlugin;
+        let mut hook = create_test_hook_with_command(
+            "Bash",
+            "sed -i 's/foo/bar/' src/hello_world.c",
+            "/home/robertodr/gits/git_diff_checker/test/test1",
+        );
+
+        let result = plugin.execute(&mut hook).unwrap();
+        let output = result.as_pre_tool().unwrap();
+
+        assert_eq!(
+            output.hook_specific_output.as_ref().unwrap()["permissionDecision"]
+                .as_str()
+                .unwrap(),
+            "allow",
+            "bash write to unblocked path in allowed dir should be allowed"
+        );
+
+        // Clean up env var to avoid leaking into subsequent tests
+        std::env::remove_var("HOOK_BLOCKED_PATHS");
+    }
+
+    // ==========================================
+    // Absolute Path Outside Repo Test
+    // ==========================================
     fn test_bash_write_absolute_path_outside_repo() {
         let plugin = MyPlugin;
         // Write to /tmp/ which is outside the project
