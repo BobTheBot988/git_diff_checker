@@ -307,11 +307,37 @@ fn get_original_file_content(repo_path: &str, filename: &str) -> Result<String, 
         .map_err(|e| format!("Failed to convert content to UTF-8: {}", e))
 }
 
+/// Check if two lines differ only by whitespace and brace repositioning.
+///
+/// A formatting change is when the non-whitespace content is the same, or differs
+/// only by one `{` or `}` at a boundary (captures brace-split like `fun(){}` → `fun() {`).
+fn is_formatting_change(orig: &str, new: &str) -> bool {
+    let compact_orig: String = orig.chars().filter(|c| !c.is_whitespace()).collect();
+    let compact_new: String = new.chars().filter(|c| !c.is_whitespace()).collect();
+
+    if compact_orig == compact_new {
+        return true;
+    }
+
+    // After stripping one boundary brace, check equality.
+    // Handles brace-split like `fun(){}` → `fun() {`:
+    //   compacted: `fun(){}` vs `fun(){`
+    //   strip one `}` from first → `fun()` == `fun()`
+    fn strip_one_boundary_brace(s: &str) -> &str {
+        fn is_brace(c: char) -> bool {
+            c == '{' || c == '}'
+        }
+        s.trim_start_matches(is_brace).trim_end_matches(is_brace)
+    }
+    strip_one_boundary_brace(&compact_orig) == strip_one_boundary_brace(&compact_new)
+}
+
 /// Check if a hunk actually modifies original line content (not just adds at end or whitespace changes)
 ///
 /// Returns true only if:
 /// - Original lines are deleted (not just replaced)
 /// - Original line content actually changes (not just whitespace/indentation)
+/// - Changes are not formatting-only (brace expansion, whitespace)
 fn hunk_affects_original_content(hunk: &HunkInfo, original_line_count: usize) -> bool {
     // Parse the hunk content to see if it modifies existing lines
     let mut has_deletions = false;
@@ -342,7 +368,7 @@ fn hunk_affects_original_content(hunk: &HunkInfo, original_line_count: usize) ->
         let orig = original_lines[i].trim();
         let new = new_lines[i].trim();
         // Only count as modification if original line had real content (not just whitespace)
-        if !orig.is_empty() && orig != new {
+        if !orig.is_empty() && orig != new && !is_formatting_change(orig, new) {
             // The non-whitespace content differs - this is a real modification
             has_non_whitespace_changes = true;
             break;
@@ -686,6 +712,60 @@ mod tests {
         assert_eq!(parse_range("+4,4"), Some((4, 4)));
         assert_eq!(parse_range("-1"), Some((1, 1)));
         assert_eq!(parse_range("invalid"), None);
+    }
+
+    #[test]
+    fn test_is_formatting_change_true_for_brace_expansion() {
+        // `fun(){}` → `fun() {` — brace moved to its own line
+        assert!(is_formatting_change("fun(){}", "fun() {"));
+    }
+
+    #[test]
+    fn test_is_formatting_change_true_for_whitespace_only() {
+        // Only whitespace difference
+        assert!(is_formatting_change("  x = 1;", "x = 1;"));
+    }
+
+    #[test]
+    fn test_is_formatting_change_false_for_content_change() {
+        // Semantic content changed
+        assert!(!is_formatting_change("x = 1;", "x = 2;"));
+    }
+
+    #[test]
+    fn test_is_formatting_change_true_for_brace_and_whitespace() {
+        // `{ }` → `{` — closing brace on next line
+        assert!(is_formatting_change("{ }", "{"));
+    }
+
+    #[test]
+    fn test_is_formatting_change_false_for_different_content_with_brace() {
+        // Content differs even with same braces
+        assert!(!is_formatting_change("a = b; }", "a = c; }"));
+    }
+
+    #[test]
+    fn test_is_formatting_change_true_for_empty_to_brace() {
+        // Empty line with just braces
+        assert!(is_formatting_change("{}", "{"));
+    }
+
+    #[test]
+    fn test_hunk_brace_expansion_not_modified() {
+        // A hunk where `fun(){}` becomes `fun() {\n  // code\n}`.
+        // The original line `fun(){}` vs new line `fun() {` should be
+        // considered formatting-only → hunk should NOT affect original content.
+        let hunk = HunkInfo {
+            content: "@@ -1,1 +1,3 @@\n-fun(){}\n+fun() {\n+  // code\n+}\n".to_string(),
+            original_start: 1,
+            original_count: 1,
+            new_start: 1,
+            new_count: 3,
+        };
+        assert!(
+            !hunk_affects_original_content(&hunk, 10),
+            "brace expansion should not count as original content modification"
+        );
     }
 
     #[test]
