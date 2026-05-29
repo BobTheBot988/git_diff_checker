@@ -1,0 +1,21 @@
+[package]
+name = "stop_hook"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+common = { path = "../common" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+
+[lints.clippy]
+# Disallow the shortcuts
+unwrap_used = "deny"
+expect_used = "deny"
+# Disallow the question mark operator
+question_mark = "deny"
+# Disallow common combinators that bypass matching
+map_flatten = "deny"
+# Optional: force explicit matches over simple 'if let' for results
+single_match = "deny"

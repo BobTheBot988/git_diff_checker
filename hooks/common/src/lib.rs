@@ -216,10 +216,34 @@ pub struct PostToolUseInput {
     pub tool_use_id: String,
 }
 
+#[serde_inline_default]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct StopInput {
+    pub session_id: Option<String>,
+    pub transcript_path: Option<String>,
+    #[serde_inline_default(PermissionMode::Default)]
+    pub permission_mode: PermissionMode,
+    pub effort: Option<serde_json::Value>,
+    #[serde(default)]
+    pub tool_input: HashMap<String, serde_json::Value>,
+}
+
+impl StopInput {
+    #[allow(dead_code)]
+    pub fn get_cwd(req: &CommandRequest) -> PathBuf {
+        match req.cwd.clone() {
+            Some(c) => c,
+            None => PathBuf::from("."),
+        }
+    }
+}
+
 impl_check_valid_type!(PreToolUseInput, "PreToolUse");
 impl_check_valid_type!(PostToolUseInput, "PostToolUse");
+impl_check_valid_type!(StopInput, "Stop");
 impl_try_from_request!(PreToolUseInput, "PreToolUse");
 impl_try_from_request!(PostToolUseInput, "PostToolUse");
+impl_try_from_request!(StopInput, "Stop");
 
 #[derive(Debug, Deserialize, EnumDiscriminants, EnumAsInner)]
 #[strum_discriminants(derive(AsRefStr))]
@@ -227,6 +251,7 @@ impl_try_from_request!(PostToolUseInput, "PostToolUse");
 pub enum HookInput {
     PreToolUse(PreToolUseInput),
     PostToolUse(PostToolUseInput),
+    Stop(StopInput),
 }
 
 impl Clone for HookInput {
@@ -234,6 +259,7 @@ impl Clone for HookInput {
         match self {
             Self::PreToolUse(arg0) => Self::PreToolUse(arg0.clone()),
             Self::PostToolUse(arg0) => Self::PostToolUse(arg0.clone()),
+            Self::Stop(arg0) => Self::Stop(arg0.clone()),
         }
     }
 }
@@ -393,6 +419,65 @@ impl PostToolUseHookOutput {
     }
 }
 
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "snake_case")]
+pub struct StopHookOutput {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decision: Option<HookDecision>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(rename = "continue")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cont: Option<bool>,
+    #[serde(rename = "stopReason")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_reason: Option<String>,
+    #[serde(rename = "suppressOutput")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suppress_output: Option<bool>,
+    #[serde(rename = "systemMessage")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_message: Option<String>,
+    #[serde(rename = "terminalSequence")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub terminal_sequence: Option<String>,
+}
+
+impl StopHookOutput {
+    #[allow(dead_code)]
+    pub fn is_blocking_decision(&self) -> bool {
+        matches!(self.decision, Some(HookDecision::Block))
+    }
+
+    pub fn should_stop_execution(&self) -> bool {
+        self.cont.is_some_and(|c| !c)
+    }
+
+    pub fn get_effective_reason(&self) -> String {
+        self.stop_reason
+            .as_ref()
+            .or(self.reason.as_ref())
+            .cloned()
+            .unwrap_or_else(|| "No reason provided".to_string())
+    }
+
+    pub fn get_blocking_error(&self) -> (bool, String) {
+        if self.is_blocking_decision() {
+            (true, self.get_effective_reason())
+        } else {
+            (false, "".to_string())
+        }
+    }
+
+    pub fn should_clear_context() -> bool {
+        false
+    }
+
+    pub fn get_additional_context(&self) -> Option<String> {
+        self.reason.clone()
+    }
+}
+
 impl PreToolUseHookOutput {
     pub fn make_pre_tool_output(decision: HookDecision, cont: bool, reason: String) -> HookOutput {
         let mut map = HashMap::new();
@@ -436,6 +521,7 @@ impl PostToolUseHookOutput {
 pub enum HookOutput {
     PreTool(PreToolUseHookOutput),
     PostTool(PostToolUseHookOutput),
+    Stop(StopHookOutput),
 }
 
 // ==========================================
@@ -482,6 +568,18 @@ impl HookEngine {
                             decision: None,
                         };
                         HookOutput::PreTool(output)
+                    }
+                    HookEventName::Stop => {
+                        let output = StopHookOutput {
+                            decision: Some(HookDecision::Block),
+                            reason: Some(e.clone()),
+                            cont: Some(false),
+                            stop_reason: None,
+                            suppress_output: None,
+                            system_message: None,
+                            terminal_sequence: None,
+                        };
+                        HookOutput::Stop(output)
                     }
                     _ => {
                         let output = PostToolUseHookOutput {
@@ -580,6 +678,18 @@ fn recv_hook_input(he: &HookEventName, h: &HookType) -> (HookInput, CommandReque
                         Err(e) => {
                             eprintln!(
                                 "DEBUG recv_hook_input: failed to convert to PostToolUseInput: {}",
+                                e
+                            );
+                        }
+                    },
+                    HookEventName::Stop => match StopInput::try_from(req.clone()) {
+                        Ok(input) => {
+                            eprintln!("DEBUG recv_hook_input: converted to StopInput");
+                            return (HookInput::Stop(input), req);
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "DEBUG recv_hook_input: failed to convert to StopInput: {}",
                                 e
                             );
                         }

@@ -1,3 +1,3 @@
 [workspace]
-members = ["pre", "post", "common"]
+members = ["pre", "post", "stop", "common"]
 resolver = "2"
