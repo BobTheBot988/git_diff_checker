@@ -13,3 +13,6 @@
 [submodule "test/test5"]
 	path = test/test5
 	url = https://github.com/BobTheBot988/sec_proj.git
+[submodule "mcp-synthesizer"]
+	path = mcp-synthesizer
+	url = git@github.com:LucaSforza/mcp-synthesizer.git
