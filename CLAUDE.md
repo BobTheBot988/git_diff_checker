@@ -39,8 +39,9 @@ The repository contains **three Rust builds**: the root `git_diff_checker` crate
 │   └── hooks.drawio            #   Architecture diagram
 ├── mcp-synthesizer/            # Git submodule: MCP server for Solidity synthesis
 │   ├── src/                    #   main.rs, db.rs, tools.rs, pipeline.rs
-│   ├── Cargo.toml              #   Dependencies: rmcp, tokio, rusqlite, clap
+│   ├── Cargo.toml              #   Dependencies: rmcp, tokio, rusqlite, clap (package: mcp_synth)
 │   ├── CLAUDE.md
+│   ├── justfile                #   Build + install automation
 │   └── README.md
 ├── test/                       # Test fixtures + shell integration tests
 │   ├── test2/                  #   Git submodule: Foundry Solidity project (BobTheBot988/test2)
@@ -82,10 +83,11 @@ The repository contains **three Rust builds**: the root `git_diff_checker` crate
 ## Submodule Details
 
 ### mcp-synthesizer (`git@github.com:LucaSforza/mcp-synthesizer.git`)
-Separate MCP server for Solidity contract synthesis using `rmcp` SDK. Exposes 4 MCP tools:
+Separate MCP server for Solidity contract synthesis using `rmcp` SDK (package: `mcp_synth`). Exposes 4 MCP tools:
 - `forge_install`, `forge_build`, `forge_test` — wrap Foundry commands
 - `run_synthesis` — full pipeline: forge build → forge test → halmos verification
 - SQLite persistence for trial results
+- `justfile` for build/install to `~/.local/bin/`
 
 ### test/test2 (`BobTheBot988/test2`)
 Foundry Solidity project with auction contract. Has its own submodules, `foundry.toml`, `halmos.toml`, `justfile`. Multiple experiment branches for different LLM agent configurations.
