@@ -1,5 +1,4 @@
 use enum_as_inner::EnumAsInner;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_inline_default::serde_inline_default;
 use std::{
@@ -108,14 +107,7 @@ macro_rules! impl_hook_output_methods {
                 self.hook_specific_output
                     .as_ref()
                     .and_then(|map| map.get("additionalContext"))
-                    .map(|val| {
-                        let mut context = val.to_string();
-                        let relt = Regex::new("<").unwrap();
-                        let regt = Regex::new(">").unwrap();
-                        context = relt.replace_all(&context, "&lt;").to_string();
-                        context = regt.replace_all(&context, "&gt;").to_string();
-                        context
-                    })
+                    .map(|val| val.to_string().replace("<", "&lt;").replace(">", "&gt;"))
             }
         }
     };
@@ -175,6 +167,35 @@ pub enum HookEventName {
     SessionEnd,
     PermissionRequest,
     StopFailure,
+}
+
+// ==========================================
+// 2.5. Coverage Models (Halmas coverage.json)
+// ==========================================
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "snake_case")]
+pub struct CoverageTestResult {
+    pub name: String,
+    pub exitcode: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub num_models: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub models: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub num_paths: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub num_bounded_loops: Option<u64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "snake_case")]
+pub struct CoverageJson {
+    pub exitcode: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub test_results: Option<std::collections::HashMap<String, Vec<CoverageTestResult>>>,
 }
 
 // ==========================================
@@ -314,11 +335,12 @@ pub struct PostToolUseHookOutput {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub decision: Option<HookDecision>,
 }
-impl ToString for PostToolUseHookOutput {
-    fn to_string(&self) -> String {
-        format!(
+impl std::fmt::Display for PostToolUseHookOutput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
             "{}",
-            serde_json::to_string(self).expect("Error converting to string")
+            serde_json::to_string(self).map_err(|_| std::fmt::Error)?
         )
     }
 }
@@ -360,14 +382,7 @@ impl PreToolUseHookOutput {
         self.hook_specific_output
             .as_ref()
             .and_then(|map| map.get("additionalContext"))
-            .map(|val| {
-                let mut context = val.to_string();
-                let relt = Regex::new("<").unwrap();
-                let regt = Regex::new(">").unwrap();
-                context = relt.replace_all(&context, "&lt;").to_string();
-                context = regt.replace_all(&context, "&gt;").to_string();
-                context
-            })
+            .map(|val| val.to_string().replace("<", "&lt;").replace(">", "&gt;"))
     }
 }
 
@@ -408,14 +423,7 @@ impl PostToolUseHookOutput {
         self.hook_specific_output
             .as_ref()
             .and_then(|map| map.get("additionalContext"))
-            .map(|val| {
-                let mut context = val.to_string();
-                let relt = Regex::new("<").unwrap();
-                let regt = Regex::new(">").unwrap();
-                context = relt.replace_all(&context, "&lt;").to_string();
-                context = regt.replace_all(&context, "&gt;").to_string();
-                context
-            })
+            .map(|val| val.to_string().replace("<", "&lt;").replace(">", "&gt;"))
     }
 }
 
@@ -610,8 +618,17 @@ impl Hook {
         eprintln!("[Hook Log]: {}", message);
     }
     pub fn send_hook_output(&self) {
-        std::io::stdout().flush().unwrap();
-        let output_json = serde_json::to_string_pretty(&self.1).unwrap();
+        if let Err(e) = std::io::stdout().flush() {
+            eprintln!("[Hook Log]: Failed to flush stdout: {}", e);
+            return;
+        }
+        let output_json = match serde_json::to_string_pretty(&self.1) {
+            Ok(json) => json,
+            Err(e) => {
+                eprintln!("[Hook Log]: Failed to serialize output: {}", e);
+                return;
+            }
+        };
         match self.3 {
             HookType::Command => println!("{}", output_json),
             _ => todo!(),
@@ -651,10 +668,12 @@ fn recv_hook_input(he: &HookEventName, h: &HookType) -> (HookInput, CommandReque
                 };
 
                 match writer.write_all(&(r.into_bytes())) {
-                    Ok(_) => eprintln!(
-                        "DEBUG recv_hook_input: written to debug_file:{}",
-                        &serde_json::to_string_pretty(&req).unwrap()
-                    ),
+                    Ok(_) => match serde_json::to_string_pretty(&req) {
+                        Ok(json) => {
+                            eprintln!("DEBUG recv_hook_input: written to debug_file:{}", json)
+                        }
+                        Err(e) => eprintln!("DEBUG recv_hook_input: serialization error: {}", e),
+                    },
                     Err(e) => panic!("Error writing to debug file {}", e),
                 };
                 match he {
