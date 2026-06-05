@@ -38,7 +38,15 @@ The repository contains **three Rust builds**: the root `git_diff_checker` crate
 │   ├── Cargo.lock
 │   └── hooks.drawio            #   Architecture diagram
 ├── mcp-synthesizer/            # Git submodule: MCP server for Solidity synthesis
-│   ├── src/                    #   main.rs, db.rs, tools.rs, pipeline.rs
+│   ├── src/bin/                 #   mcp_synth.rs + queue_controller/ + populate_queue.rs + migrate_sqlite_to_redis.rs
+│   │   ├── mcp_synth.rs         #   MCP server entry point
+│   │   ├── queue_controller.rs  #   Slurm queue executor
+│   │   ├── populate_queue.rs    #   Batch job enqueuer
+│   │   ├── migrate_sqlite_to_redis.rs  #   Data migration
+│   │   ├── queue_controller/    #   Submodules: mod.rs, claude.rs, slurm.rs, queue.rs
+│   │   └── .../
+│   ├── src/db/                  #   Database trait + Redis + SQLite impls
+│   ├── src/tools.rs             #   MCP tool definitions
 │   ├── Cargo.toml              #   Dependencies: rmcp, tokio, rusqlite, clap (package: mcp_synth)
 │   ├── CLAUDE.md
 │   ├── justfile                #   Build + install automation
@@ -83,11 +91,36 @@ The repository contains **three Rust builds**: the root `git_diff_checker` crate
 ## Submodule Details
 
 ### mcp-synthesizer (`git@github.com:LucaSforza/mcp-synthesizer.git`)
-Separate MCP server for Solidity contract synthesis using `rmcp` SDK (package: `mcp_synth`). Exposes 4 MCP tools:
-- `forge_install`, `forge_build`, `forge_test` — wrap Foundry commands
-- `run_synthesis` — full pipeline: forge build → forge test → halmos verification
-- SQLite persistence for trial results
-- `justfile` for build/install to `~/.local/bin/`
+MCP server for Solidity smart contract synthesis. Package: `mcp_synth`, SDK: `rmcp`. 4 binaries:
+
+| Binary | Path | Purpose |
+|--------|------|---------|
+| `mcp_synth` | `src/bin/mcp_synth.rs` | MCP server (main entry point) |
+| `migrate` | `src/bin/migrate_sqlite_to_redis.rs` | SQLite → Redis migration (DEPRECATED) |
+| `queue_controller` | `src/bin/queue_controller.rs` | Slurm batch synthesis executor |
+| `populate_queue` | `src/bin/populate_queue.rs` | Batch enqueue synthesis jobs |
+
+**Build & run:**
+```bash
+cargo build --manifest-path mcp-synthesizer/Cargo.toml
+cargo run --manifest-path mcp-synthesizer/Cargo.toml -- --cwd <foundry-project> --project <name>
+```
+
+**CLI flags:** `--cwd` (required), `--project` (required), `--invariants` (default 0), `--db-type` (default `redis`), `--redis-url` (default `redis://localhost:6379`), `--db-path` (SQLite only, DEPRECATED).
+
+**MCP tools exposed (4):**
+- `forge_install` — run `forge install` in project dir. Idempotent.
+- `forge_build` — compile with `forge build -vvv`, records compilation telemetry. Idempotent.
+- `forge_test` — run `forge test --json`, parses gas, records `succeeded_fuzzing`/`failed_fuzzing` trial. Idempotent.
+- `run_synthesis` — full pipeline: build → test → halmos. Records detailed trial with result type. Not idempotent.
+
+**Install:** `just install` (inside mcp-synthesizer/) copies binary to `~/.local/bin/`.
+
+**DB backends:** Redis (default, recommended). SQLite backend is DEPRECATED — use Redis. Runtime selection via `--db-type`.
+
+**Queue system:** `queue_controller` reads jobs from Redis sorted set, submits Slurm jobs, tunnels SSH to compute node, runs Claude Code with MCP config, records results. `populate_queue` enqueues N deterministic jobs via ChaCha8 RNG.
+
+**For full details** (DB schema, pipeline architecture, tool internals, dependencies, test setup): see `mcp-synthesizer/CLAUDE.md` — submodule's own file is authoritative.
 
 ### test/test2 (`BobTheBot988/test2`)
 Foundry Solidity project with auction contract. Has its own submodules, `foundry.toml`, `halmos.toml`, `justfile`. Multiple experiment branches for different LLM agent configurations.
