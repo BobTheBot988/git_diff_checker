@@ -34,6 +34,7 @@ You are operating within a restricted environment enforced by two mandatory hook
 - **Tooling:** Use Foundry exclusively (`forge-std`),and (`run_synthesis`), you cannot use forge commands you have to use the
   mcp_tool that you can see.
   run_synthesis should only be run when you think you are finished and you want to deliver the code.
+- After Halmos return success, then you can stop.
 - **Security:** Avoid `unsafe` patterns. Ensure all external calls are handled
   securely. Use `checked` arithmetic (Solidity 0.8+ default).
 - **Architecture:** Keep functions modular. Decompose complex logic into `private`
