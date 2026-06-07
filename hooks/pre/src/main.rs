@@ -349,15 +349,21 @@ fn handle_bash_tool(
         ));
     }
 
-    // Block any forge command — model must use the Forge MCP server for testing
+    // Block forge and halmos — model must use MCP tools instead.
+    // Check all tokens (not just first) to catch wrappers like
+    // `timeout 120 forge build` or `nohup halmos ...`.
     if let Some(tokens) = shlex::split(command) {
-        if tokens.first().map(|t| t.as_str()) == Some("forge") {
+        let blocked: Vec<&str> = tokens.iter().map(|t| t.as_str()).filter(|t| *t == "forge" || *t == "halmos").collect();
+        if let Some(cmd) = blocked.first() {
+            let msg = match *cmd {
+                "forge" => "The 'forge' command is not allowed. Please use the Forge MCP server for testing instead of running forge directly.",
+                "halmos" => "The 'halmos' command is not allowed. Please use the run_synthesis MCP tool instead.",
+                _ => unreachable!(),
+            };
             return Ok(PreToolUseHookOutput::make_pre_tool_output(
                 common::HookDecision::Deny,
                 true,
-                format!(
-                    "The 'forge' command is not allowed. Please use the Forge MCP server for testing instead of running forge directly."
-                ),
+                format!("{msg}"),
             ));
         }
     }
@@ -870,6 +876,79 @@ mod tests {
                 .unwrap(),
             "allow",
             "forgeapp (unrelated command) should be allowed"
+        );
+    }
+
+    // ==========================================
+    // Halmos Command Blocking Tests
+    // ==========================================
+
+    #[test]
+    fn test_halmos_is_denied() {
+        let plugin = MyPlugin;
+        let mut hook = create_test_hook_with_command(
+            "Bash",
+            "halmos --match-contract CounterTest",
+            "/tmp/prehooktest",
+        );
+
+        let result = plugin.execute(&mut hook).unwrap();
+        let output = result.as_pre_tool().unwrap();
+
+        assert_eq!(
+            output
+                .hook_specific_output
+                .as_ref()
+                .unwrap()["permissionDecision"]
+                .as_str()
+                .unwrap(),
+            "deny",
+            "halmos should be denied"
+        );
+    }
+
+    #[test]
+    fn test_halmos_with_timeout_is_denied() {
+        let plugin = MyPlugin;
+        // Wrapper commands like `timeout` should also be caught
+        let mut hook = create_test_hook_with_command(
+            "Bash",
+            "timeout 120 halmos --match-test Invariants",
+            "/tmp/prehooktest",
+        );
+
+        let result = plugin.execute(&mut hook).unwrap();
+        let output = result.as_pre_tool().unwrap();
+
+        assert_eq!(
+            output
+                .hook_specific_output
+                .as_ref()
+                .unwrap()["permissionDecision"]
+                .as_str()
+                .unwrap(),
+            "deny",
+            "halmos with timeout wrapper should be denied"
+        );
+    }
+
+    #[test]
+    fn test_halmos_deny_message_mentions_run_synthesis() {
+        let plugin = MyPlugin;
+        let mut hook = create_test_hook_with_command(
+            "Bash",
+            "halmos --match-test SystemTest",
+            "/tmp/prehooktest",
+        );
+
+        let result = plugin.execute(&mut hook).unwrap();
+        let output = result.as_pre_tool().unwrap();
+
+        let reason = output.reason.as_ref().unwrap();
+        assert!(
+            reason.contains("run_synthesis"),
+            "deny reason should mention run_synthesis, got: {}",
+            reason
         );
     }
 
