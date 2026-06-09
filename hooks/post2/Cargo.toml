@@ -1,16 +1,13 @@
 [package]
-name = "common"
+name = "stop_when_succ_hook"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
-enum-as-inner = "0.7.0"
-regex = "1.12.3"
-serde = { version = "1.0.228", features = ["derive"] }
-serde-inline-default = "1.0.1"
-serde_json = "1.0.149"
-strum = { version = "0.28.0", features = ["derive"] }
-strum_macros = "0.28.0"
+common = { path = "../common" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
 
 [lints.clippy]
 # Disallow the shortcuts

@@ -1,0 +1,15 @@
+[package]
+name = "post_hook_for_stopping"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+common = { path = "../common" }
+serde_json = "1"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+question_mark = "deny"
+map_flatten = "deny"
+single_match = "deny"

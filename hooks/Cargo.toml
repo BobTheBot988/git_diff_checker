@@ -1,3 +1,3 @@
 [workspace]
-members = ["pre", "post", "stop", "common"]
+members = ["pre", "post", "post_hook_for_stopping", "stop", "common"]
 resolver = "2"
