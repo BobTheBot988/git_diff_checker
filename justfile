@@ -26,16 +26,6 @@ build:
     echo "[git_diff_checker shared libraries]:"
     readelf -d "{{ root_dir }}/target/release/git_diff_checker" | grep -E 'NEEDED|Shared library' || echo "  (Statically linked / No dependencies)"
 
-    echo -e "\n[post_hook shared libraries]:"
-    readelf -d "{{ root_dir }}/hooks/target/release/post_hook" | grep -E 'NEEDED|Shared library' || echo "  (Statically linked / No dependencies)"
-
-    echo -e "\n[stop_hook shared libraries]:"
-    readelf -d "{{ root_dir }}/hooks/target/release/stop_hook" | grep -E 'NEEDED|Shared library' || echo "  (Statically linked / No dependencies)"
-
-
-    echo -e "\n[pre_hook shared libraries]:"
-    readelf -d "{{ root_dir }}/hooks/target/release/pre_hook" | grep -E 'NEEDED|Shared library' || echo "  (Statically linked / No dependencies)"
-
 # Install the binaries safely with md5sum checks
 install: build
     #!/usr/bin/env bash
@@ -47,43 +37,8 @@ install: build
     DEST_GDC="{{ bin_dir }}/git_diff_checker"
 
     if [ -f "$DEST_GDC" ] && [ "$(md5sum < "$SRC_GDC")" = "$(md5sum < "$DEST_GDC")" ]; then
-        echo "[1/4] git_diff_checker is already up-to-date. Skipping."
+        echo "[1/5] git_diff_checker is already up-to-date. Skipping."
     else
         cp "$SRC_GDC" "$DEST_GDC"
-        echo "=> [1/4] Installed/Updated git_diff_checker"
+        echo "=> [1/5] Installed/Updated git_diff_checker"
     fi
-
-    # 2. Handle post_hook
-    SRC_POST="{{ root_dir }}/hooks/target/release/post_hook"
-    DEST_POST="{{ bin_dir }}/post_hook"
-
-    if [ -f "$DEST_POST" ] && [ "$(md5sum < "$SRC_POST")" = "$(md5sum < "$DEST_POST")" ]; then
-        echo "[2/4] post_hook is already up-to-date. Skipping."
-    else
-        cp "$SRC_POST" "$DEST_POST"
-        echo "=> [2/4] Installed/Updated post_hook"
-    fi
-
-    # 3. Handle pre_hook
-    SRC_PRE="{{ root_dir }}/hooks/target/release/pre_hook"
-    DEST_PRE="{{ bin_dir }}/pre_hook"
-
-    if [ -f "$DEST_PRE" ] && [ "$(md5sum < "$SRC_PRE")" = "$(md5sum < "$DEST_PRE")" ]; then
-        echo "[3/4] pre_hook is already up-to-date. Skipping."
-    else
-        cp "$SRC_PRE" "$DEST_PRE"
-        echo "=> [3/4] Installed/Updated pre_hook"
-    fi
-
-    # 4. Handle stop_hook
-    SRC_PRE="{{ root_dir }}/hooks/target/release/stop_hook"
-    DEST_PRE="{{ bin_dir }}/stop_hook"
-
-    if [ -f "$DEST_PRE" ] && [ "$(md5sum < "$SRC_PRE")" = "$(md5sum < "$DEST_PRE")" ]; then
-        echo "[4/4] stop_hook is already up-to-date. Skipping."
-    else
-        cp "$SRC_PRE" "$DEST_PRE"
-        echo "=> [4/4] Installed/Updated stop_hook"
-    fi
-
-    echo "INSTALL COMPLETE!"

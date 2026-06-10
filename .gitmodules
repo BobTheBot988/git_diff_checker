@@ -3,7 +3,7 @@
 	url = https://github.com/BobTheBot988/test2
 [submodule "hook"]
 	path = hook
-	url = ./hook
+	url = https://github.com/BobTheBot988/claude_hooks_rs
 [submodule "test/test3"]
 	path = test/test3
 	url = https://github.com/BobTheBot988/test3
