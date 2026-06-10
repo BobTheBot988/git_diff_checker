@@ -1,0 +1,5 @@
+alias c := clean
+
+clean name:
+    to_be_deleted=$(git branch  |  cat  -s | grep '{{ name }}' | sed -e 's/\*//g' -e 's/ *//g')
+    echo $to_be_deleted
