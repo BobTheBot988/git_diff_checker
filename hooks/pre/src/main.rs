@@ -263,12 +263,24 @@ impl HookHandler for MyPlugin {
         // Write/Edit operations — check file_path against whitelist
         let write_tools = ["Write", "Edit"];
         if write_tools.contains(&tool_name) {
-            return handle_write_tool(&hi.tool_input, tool_name, &project_root, &allowed_dirs, &blocked_paths);
+            return handle_write_tool(
+                &hi.tool_input,
+                tool_name,
+                &project_root,
+                &allowed_dirs,
+                &blocked_paths,
+            );
         }
 
         // Bash command — parse for file write operations
         if tool_name == "Bash" {
-            return handle_bash_tool(&hi.tool_input, tool_name, &project_root, &allowed_dirs, &blocked_paths);
+            return handle_bash_tool(
+                &hi.tool_input,
+                tool_name,
+                &project_root,
+                &allowed_dirs,
+                &blocked_paths,
+            );
         }
 
         // Default fallback
@@ -353,11 +365,16 @@ fn handle_bash_tool(
     // Check all tokens (not just first) to catch wrappers like
     // `timeout 120 forge build` or `nohup halmos ...`.
     if let Some(tokens) = shlex::split(command) {
-        let blocked: Vec<&str> = tokens.iter().map(|t| t.as_str()).filter(|t| *t == "forge" || *t == "halmos").collect();
+        let blocked: Vec<&str> = tokens
+            .iter()
+            .map(|t| t.as_str())
+            .filter(|t| *t == "forge" || *t == "halmos")
+            .collect();
         if let Some(cmd) = blocked.first() {
             let msg = match *cmd {
                 "forge" => "The 'forge' command is not allowed. Please use the Forge MCP server for testing instead of running forge directly.",
                 "halmos" => "The 'halmos' command is not allowed. Please use the run_synthesis MCP tool instead.",
+                "git" => "The 'git' command is not allowed.",
                 _ => unreachable!(),
             };
             return Ok(PreToolUseHookOutput::make_pre_tool_output(
@@ -740,20 +757,13 @@ mod tests {
     #[test]
     fn test_forge_test_is_denied() {
         let plugin = MyPlugin;
-        let mut hook = create_test_hook_with_command(
-            "Bash",
-            "forge test",
-            "/tmp/prehooktest",
-        );
+        let mut hook = create_test_hook_with_command("Bash", "forge test", "/tmp/prehooktest");
 
         let result = plugin.execute(&mut hook).unwrap();
         let output = result.as_pre_tool().unwrap();
 
         assert_eq!(
-            output
-                .hook_specific_output
-                .as_ref()
-                .unwrap()["permissionDecision"]
+            output.hook_specific_output.as_ref().unwrap()["permissionDecision"]
                 .as_str()
                 .unwrap(),
             "deny",
@@ -764,20 +774,13 @@ mod tests {
     #[test]
     fn test_forge_build_is_denied() {
         let plugin = MyPlugin;
-        let mut hook = create_test_hook_with_command(
-            "Bash",
-            "forge build",
-            "/tmp/prehooktest",
-        );
+        let mut hook = create_test_hook_with_command("Bash", "forge build", "/tmp/prehooktest");
 
         let result = plugin.execute(&mut hook).unwrap();
         let output = result.as_pre_tool().unwrap();
 
         assert_eq!(
-            output
-                .hook_specific_output
-                .as_ref()
-                .unwrap()["permissionDecision"]
+            output.hook_specific_output.as_ref().unwrap()["permissionDecision"]
                 .as_str()
                 .unwrap(),
             "deny",
@@ -798,10 +801,7 @@ mod tests {
         let output = result.as_pre_tool().unwrap();
 
         assert_eq!(
-            output
-                .hook_specific_output
-                .as_ref()
-                .unwrap()["permissionDecision"]
+            output.hook_specific_output.as_ref().unwrap()["permissionDecision"]
                 .as_str()
                 .unwrap(),
             "deny",
@@ -821,10 +821,7 @@ mod tests {
         let result = plugin.execute(&mut hook).unwrap();
         let output = result.as_pre_tool().unwrap();
 
-        let reason = output
-            .hook_specific_output
-            .as_ref()
-            .unwrap()["permissionDecisionReason"]
+        let reason = output.hook_specific_output.as_ref().unwrap()["permissionDecisionReason"]
             .as_str()
             .unwrap();
         assert!(
@@ -837,11 +834,7 @@ mod tests {
     #[test]
     fn test_forge_deny_reason_present() {
         let plugin = MyPlugin;
-        let mut hook = create_test_hook_with_command(
-            "Bash",
-            "forge install",
-            "/tmp/prehooktest",
-        );
+        let mut hook = create_test_hook_with_command("Bash", "forge install", "/tmp/prehooktest");
 
         let result = plugin.execute(&mut hook).unwrap();
         let output = result.as_pre_tool().unwrap();
@@ -858,20 +851,14 @@ mod tests {
     fn test_non_forge_command_allowed() {
         let plugin = MyPlugin;
         // Any command NOT starting with 'forge' should not trigger the block
-        let mut hook = create_test_hook_with_command(
-            "Bash",
-            "forgeapp --version",
-            "/tmp/prehooktest",
-        );
+        let mut hook =
+            create_test_hook_with_command("Bash", "forgeapp --version", "/tmp/prehooktest");
 
         let result = plugin.execute(&mut hook).unwrap();
         let output = result.as_pre_tool().unwrap();
 
         assert_eq!(
-            output
-                .hook_specific_output
-                .as_ref()
-                .unwrap()["permissionDecision"]
+            output.hook_specific_output.as_ref().unwrap()["permissionDecision"]
                 .as_str()
                 .unwrap(),
             "allow",
@@ -896,10 +883,7 @@ mod tests {
         let output = result.as_pre_tool().unwrap();
 
         assert_eq!(
-            output
-                .hook_specific_output
-                .as_ref()
-                .unwrap()["permissionDecision"]
+            output.hook_specific_output.as_ref().unwrap()["permissionDecision"]
                 .as_str()
                 .unwrap(),
             "deny",
@@ -921,10 +905,7 @@ mod tests {
         let output = result.as_pre_tool().unwrap();
 
         assert_eq!(
-            output
-                .hook_specific_output
-                .as_ref()
-                .unwrap()["permissionDecision"]
+            output.hook_specific_output.as_ref().unwrap()["permissionDecision"]
                 .as_str()
                 .unwrap(),
             "deny",
