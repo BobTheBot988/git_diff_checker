@@ -1,9 +1,6 @@
 [submodule "test/test2"]
 	path = test/test2
 	url = https://github.com/BobTheBot988/test2
-[submodule "hook"]
-	path = hook
-	url = ./hook
 [submodule "test/test3"]
 	path = test/test3
 	url = https://github.com/BobTheBot988/test3
@@ -13,6 +10,3 @@
 [submodule "test/test5"]
 	path = test/test5
 	url = https://github.com/BobTheBot988/sec_proj.git
-[submodule "mcp-synthesizer"]
-	path = mcp-synthesizer
-	url = git@github.com:LucaSforza/mcp-synthesizer.git
